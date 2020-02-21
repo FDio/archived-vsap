@@ -1,0 +1,6 @@
+VPP uses startup.conf and please remember to modify 'exec /path/to/configs/vppenvset' to your own setting.
+
+As for NGINX, if you just want to test small files, nginx.conf is a good choice. It supports 64B, 1KB and 2KB JSON files embedded in nginx.conf, meaning NGINX sends files from memory rather than disk to avoid file read cost.
+
+vcl.conf is used for both LDP NGINX and VCL NGINX. Note the rx-fifo-size and tx-fifo-size should be larger than file size you want to test. 'rx-fifo-size 5000' means the size of rx fifo of an app session is 5000 bytes.
+
