@@ -1,0 +1,3 @@
+set int state eth0 up
+set int ip address eth0 10.0.0.1/24
+session enable

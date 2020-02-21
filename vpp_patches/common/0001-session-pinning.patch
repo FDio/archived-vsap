@@ -1,0 +1,168 @@
+From 310c46798bdfe655ea35eabec57215568b3632ec Mon Sep 17 00:00:00 2001
+From: SunGuoao <guoao.sun@intel.com>
+Date: Thu, 17 Oct 2019 00:16:31 +0800
+Subject: [PATCH] session: pinning
+
+Change-Id: Ic3600bc293bdae7ff62611da8d1241afccdac02a
+---
+ src/vnet/session/application.c | 83 ++++++++++++++++++++++++++++++++--
+ src/vnet/session/application.h | 13 ++++++
+ 2 files changed, 92 insertions(+), 4 deletions(-)
+
+diff --git a/src/vnet/session/application.c b/src/vnet/session/application.c
+index 396470ae6..869fec45c 100644
+--- a/src/vnet/session/application.c
++++ b/src/vnet/session/application.c
+@@ -32,13 +32,19 @@ static app_listener_t *
+ app_listener_alloc (application_t * app)
+ {
+   app_listener_t *app_listener;
++  vpp_app_worker_map_t *current_thread_map;
+   pool_get (app->listeners, app_listener);
++  pool_get (app->app_worker_thread_map, current_thread_map);
+   clib_memset (app_listener, 0, sizeof (*app_listener));
++  clib_memset (current_thread_map, 0, sizeof (*current_thread_map));
++  current_thread_map->map_index = current_thread_map - app->app_worker_thread_map;
+   app_listener->al_index = app_listener - app->listeners;
+   app_listener->app_index = app->app_index;
+   app_listener->session_index = SESSION_INVALID_INDEX;
+   app_listener->local_index = SESSION_INVALID_INDEX;
+   app_listener->ls_handle = SESSION_INVALID_HANDLE;
++  app_listener->app_worker_thread_map = app->app_worker_thread_map;
++  app_listener->all_selected = 0;
+   return app_listener;
+ }
+ 
+@@ -253,18 +259,87 @@ app_listener_cleanup (app_listener_t * al)
+   app_listener_free (app, al);
+ }
+ 
++static void
++app_listener_select_worker_add_worker (application_t * app, u32 wrk_index)
++{
++  u32 current_thread = vlib_get_thread_index ();
++  u32 *added_wrk_index;
++  vpp_app_worker_map_t *current_thread_map;
++
++  while (pool_is_free_index (app->app_worker_thread_map, current_thread))
++    {
++      vpp_app_worker_map_t *the_thread_map;
++
++      pool_get (app->app_worker_thread_map, the_thread_map);
++      clib_memset (the_thread_map, 0, sizeof (*the_thread_map));
++      the_thread_map->map_index = the_thread_map - app->app_worker_thread_map;
++    }
++  current_thread_map =
++    pool_elt_at_index (app->app_worker_thread_map, current_thread);
++  pool_get (current_thread_map->app_worker_map, added_wrk_index);
++  *added_wrk_index = wrk_index;
++  current_thread_map->total_workers += 1;
++}
++
++static u32
++app_listener_select_worker_interval (application_t * app)
++{
++  u32 current_thread = vlib_get_thread_index ();
++  u32 wrk_index;
++  vpp_app_worker_map_t *current_map;
++
++  if (PREDICT_FALSE(pool_is_free_index (app->app_worker_thread_map, current_thread)))
++    return 0;
++
++  current_map =
++    pool_elt_at_index (app->app_worker_thread_map, current_thread);
++
++  /** If the number of app worker(s) is smaller than vpp worker/thread(s) */
++  if (PREDICT_FALSE (current_map->total_workers == 0))
++    return 0;
++
++  current_map->last_accept_wrk += 1;
++  if (current_map->last_accept_wrk == current_map->total_workers)
++    current_map->last_accept_wrk = 0;
++
++  wrk_index = current_map->app_worker_map[current_map->last_accept_wrk];
++  return wrk_index;
++}
++
+ static app_worker_t *
+ app_listener_select_worker (application_t * app, app_listener_t * al)
+ {
+   u32 wrk_index;
+ 
+   app = application_get (al->app_index);
+-  wrk_index = clib_bitmap_next_set (al->workers, al->accept_rotor + 1);
+-  if (wrk_index == ~0)
+-    wrk_index = clib_bitmap_first_set (al->workers);
++  if (PREDICT_FALSE (al->all_selected == 0))
++    {
++      wrk_index = clib_bitmap_next_set (al->workers, al->accept_rotor + 1);
++      if (wrk_index == ~0)
++       {
++         al->all_selected = 1;
++         wrk_index = app_listener_select_worker_interval (app);
++         if (wrk_index == 0)
++           wrk_index = clib_bitmap_first_set (al->workers);
++       }
++      else
++       {
++         app_listener_select_worker_add_worker (app, wrk_index);
++         al->accept_rotor = wrk_index;
++       }
++    }
++  else
++    {
++      wrk_index = app_listener_select_worker_interval (app);
++      if (PREDICT_FALSE (wrk_index == 0)){
++         wrk_index = clib_bitmap_next_set (al->workers, al->accept_rotor + 1);
++         if (wrk_index == ~0)
++          wrk_index = clib_bitmap_first_set (al->workers);
++        al->accept_rotor = wrk_index;
++        }
++   }
+ 
+   ASSERT (wrk_index != ~0);
+-  al->accept_rotor = wrk_index;
+   return application_get_worker (app, wrk_index);
+ }
+ 
+diff --git a/src/vnet/session/application.h b/src/vnet/session/application.h
+index a853c3cb7..5da3ce84a 100644
+--- a/src/vnet/session/application.h
++++ b/src/vnet/session/application.h
+@@ -70,6 +70,14 @@ typedef struct app_worker_map_
+   u32 wrk_index;
+ } app_worker_map_t;
+ 
++typedef struct vpp_app_worker_map_
++{
++  u32 map_index;
++  u32 *app_worker_map;         /** app worker(s) pinned to the thread */
++  u32 last_accept_wrk;         /** last selected app worker by the thread */
++  u32 total_workers;         /** total app worker(s) pinned to the thread */
++}vpp_app_worker_map_t;
++
+ typedef struct app_listener_
+ {
+   clib_bitmap_t *workers;	/**< workers accepting connections */
+@@ -81,6 +89,8 @@ typedef struct app_listener_
+   session_handle_t ls_handle;	/**< session handle of the local or global
+ 				     listening session that also identifies
+ 				     the app listener */
++  u8 all_selected;
++  vpp_app_worker_map_t *app_worker_thread_map;   /** app worker map for the vpp thread */
+ } app_listener_t;
+ 
+ typedef struct application_
+@@ -111,6 +121,9 @@ typedef struct application_
+   /** Pool of listeners for the app */
+   app_listener_t *listeners;
+ 
++  /** app worker(s) selected by this VPP thread */
++  vpp_app_worker_map_t *app_worker_thread_map;
++
+   /** Preferred tls engine */
+   u8 tls_engine;
+ 
+-- 
+2.17.1
+

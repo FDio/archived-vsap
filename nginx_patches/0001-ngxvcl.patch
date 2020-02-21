@@ -1,0 +1,1164 @@
+From 6c00e577a820637bc4e7b1ddc9f44b312e947a21 Mon Sep 17 00:00:00 2001
+From: Zeyu Zhang <zeyu.zhang@intel.com>
+Date: Tue, 22 Oct 2019 15:50:59 +0800
+Subject: [PATCH] nginx: modified nginx to support vcl
+
+---
+ nginx/auto/make                               | 32 ++++++++-
+ nginx/auto/options                            |  8 +++
+ nginx/configure                               |  5 ++
+ nginx/src/core/nginx.c                        |  6 ++
+ nginx/src/core/ngx_connection.c               | 66 +++++++++----------
+ nginx/src/core/ngx_core.h                     |  1 +
+ nginx/src/core/ngx_resolver.c                 |  4 +-
+ nginx/src/core/ngx_syslog.c                   |  2 +-
+ nginx/src/event/modules/ngx_epoll_module.c    | 22 +++----
+ nginx/src/event/modules/ngx_select_module.c   |  4 +-
+ .../event/modules/ngx_win32_select_module.c   |  4 +-
+ nginx/src/event/ngx_event.c                   |  2 +-
+ nginx/src/event/ngx_event_accept.c            |  8 +--
+ nginx/src/event/ngx_event_connect.c           | 20 +++---
+ .../ngx_http_upstream_keepalive_module.c      |  2 +-
+ nginx/src/http/ngx_http_request.c             |  8 +--
+ nginx/src/http/ngx_http_upstream.c            |  6 +-
+ nginx/src/http/ngx_http_variables.c           |  2 +-
+ nginx/src/os/unix/ngx_linux_sendfile_chain.c  |  6 +-
+ nginx/src/os/unix/ngx_process_cycle.c         |  3 +
+ nginx/src/os/unix/ngx_readv_chain.c           |  2 +-
+ nginx/src/os/unix/ngx_recv.c                  |  2 +-
+ nginx/src/os/unix/ngx_send.c                  |  2 +-
+ nginx/src/os/unix/ngx_socket.c                | 12 ++--
+ nginx/src/os/unix/ngx_socket.h                | 10 +--
+ nginx/src/os/unix/ngx_udp_recv.c              |  2 +-
+ nginx/src/os/unix/ngx_udp_send.c              |  2 +-
+ nginx/src/os/unix/ngx_udp_sendmsg_chain.c     |  2 +-
+ nginx/src/os/unix/ngx_writev_chain.c          |  2 +-
+ nginx/src/stream/ngx_stream_handler.c         |  2 +-
+ nginx/src/stream/ngx_stream_proxy_module.c    |  2 +-
+ 31 files changed, 151 insertions(+), 100 deletions(-)
+
+diff --git a/nginx/auto/make b/nginx/auto/make
+index 7ddd100..0e21251 100644
+--- a/nginx/auto/make
++++ b/nginx/auto/make
+@@ -61,6 +61,27 @@ ngx_incs=`echo $CORE_INCS $NGX_OBJS \
+     | sed -e "s/  *\([^ ][^ ]*\)/$ngx_regex_cont$ngx_include_opt\1/g" \
+           -e "s/\//$ngx_regex_dirsep/g"`
+ 
++
++if [ $NGX_USE_VCL = YES ]; then
++
++cat << END                                                    >> $NGX_MAKEFILE
++
++VPPCOM_LIB_PATH = $VPP_LIB_PATH
++
++
++NGXVCL_INCS = -I $VPP_SRC_PATH
++
++
++NGXVCL_LIBS = -L \$(VPPCOM_LIB_PATH) -l ngxvcl -l vppcom -l vlibmemoryclient -l svm -l vppinfra
++
++END
++
++ngx_incs=$ngx_incs" \\
++	\$(NGXVCL_INCS)"
++
++fi
++
++
+ cat << END                                                    >> $NGX_MAKEFILE
+ 
+ CORE_DEPS = $ngx_deps
+@@ -222,14 +243,21 @@ ngx_main_link=${MAIN_LINK:+`echo $MAIN_LINK \
+     | sed -e "s/\//$ngx_regex_dirsep/g" -e "s/^/$ngx_long_regex_cont/"`}
+ 
+ 
++ngxvcl_libs=
++if [ $NGX_USE_VCL = YES ]; then
++ngxvcl_libs="\\
++	\$(NGXVCL_LIBS)"
++fi
++
++
+ cat << END                                                    >> $NGX_MAKEFILE
+ 
+ build:	binary modules manpage
+ 
+ binary:	$NGX_OBJS${ngx_dirsep}nginx$ngx_binext
+ 
+-$NGX_OBJS${ngx_dirsep}nginx$ngx_binext:	$ngx_deps$ngx_spacer
+-	\$(LINK) $ngx_long_start$ngx_binout$NGX_OBJS${ngx_dirsep}nginx$ngx_long_cont$ngx_objs$ngx_libs$ngx_link$ngx_main_link
++$NGX_OBJS${ngx_dirsep}nginx$ngx_binext:	$ngx_deps $ngx_spacer
++	\$(LINK) $ngx_long_start$ngx_binout$NGX_OBJS${ngx_dirsep}nginx$ngx_long_cont$ngx_objs$ngx_libs$ngx_link$ngx_main_link $ngxvcl_libs
+ 	$ngx_rcc
+ $ngx_long_end
+ 
+diff --git a/nginx/auto/options b/nginx/auto/options
+index 59f0449..a229efa 100644
+--- a/nginx/auto/options
++++ b/nginx/auto/options
+@@ -146,6 +146,10 @@ PCRE_JIT=NO
+ USE_OPENSSL=NO
+ OPENSSL=NONE
+ 
++NGX_USE_VCL=NO
++VPP_LIB_PATH=
++VPP_SRC_PATH=
++
+ USE_ZLIB=NO
+ ZLIB=NONE
+ ZLIB_OPT=
+@@ -352,6 +356,10 @@ use the \"--with-mail_ssl_module\" option instead"
+         --with-openssl=*)                OPENSSL="$value"           ;;
+         --with-openssl-opt=*)            OPENSSL_OPT="$value"       ;;
+ 
++        --with-vcl)                      NGX_USE_VCL=YES            ;;
++        --vpp-lib-path=*)                VPP_LIB_PATH="$value"      ;;
++        --vpp-src-path=*)                VPP_SRC_PATH="$value"      ;;
++
+         --with-md5=*)
+             NGX_POST_CONF_MSG="$NGX_POST_CONF_MSG
+ $0: warning: the \"--with-md5\" option is deprecated"
+diff --git a/nginx/configure b/nginx/configure
+index 7e6e33a..fe8d36f 100755
+--- a/nginx/configure
++++ b/nginx/configure
+@@ -24,6 +24,11 @@ if [ $NGX_DEBUG = YES ]; then
+ fi
+ 
+ 
++if [ $NGX_USE_VCL = YES ]; then
++    have=NGX_USE_VCL . auto/have
++fi
++
++
+ if test -z "$NGX_PLATFORM"; then
+     echo "checking for OS"
+ 
+diff --git a/nginx/src/core/nginx.c b/nginx/src/core/nginx.c
+index 9fcb0eb..db1d61b 100644
+--- a/nginx/src/core/nginx.c
++++ b/nginx/src/core/nginx.c
+@@ -201,6 +201,8 @@ main(int argc, char *const *argv)
+     ngx_conf_dump_t  *cd;
+     ngx_core_conf_t  *ccf;
+ 
++    ngxvcl_app_create("Nginx with VCL");
++
+     ngx_debug_init();
+ 
+     if (ngx_strerror_init() != NGX_OK) {
+@@ -376,12 +378,16 @@ main(int argc, char *const *argv)
+     ngx_use_stderr = 0;
+ 
+     if (ngx_process == NGX_PROCESS_SINGLE) {
++        ngxvcl_wait_vep_only();
+         ngx_single_process_cycle(cycle);
+ 
+     } else {
++        ngxvcl_wait_kep_and_vep();
+         ngx_master_process_cycle(cycle);
+     }
+ 
++    ngxvcl_app_destroy();
++
+     return 0;
+ }
+ 
+diff --git a/nginx/src/core/ngx_connection.c b/nginx/src/core/ngx_connection.c
+index 9a74758..a61a7a3 100644
+--- a/nginx/src/core/ngx_connection.c
++++ b/nginx/src/core/ngx_connection.c
+@@ -157,7 +157,7 @@ ngx_set_inherited_sockets(ngx_cycle_t *cycle)
+         }
+ 
+         ls[i].socklen = sizeof(ngx_sockaddr_t);
+-        if (getsockname(ls[i].fd, ls[i].sockaddr, &ls[i].socklen) == -1) {
++        if (ngxvcl_kvfd_getsockname(ls[i].fd, ls[i].sockaddr, &ls[i].socklen) == -1) {
+             ngx_log_error(NGX_LOG_CRIT, cycle->log, ngx_socket_errno,
+                           "getsockname() of the inherited "
+                           "socket #%d failed", ls[i].fd);
+@@ -215,7 +215,7 @@ ngx_set_inherited_sockets(ngx_cycle_t *cycle)
+ 
+         olen = sizeof(int);
+ 
+-        if (getsockopt(ls[i].fd, SOL_SOCKET, SO_TYPE, (void *) &ls[i].type,
++        if (ngxvcl_kvfd_getsockopt(ls[i].fd, SOL_SOCKET, SO_TYPE, (void *) &ls[i].type,
+                        &olen)
+             == -1)
+         {
+@@ -227,7 +227,7 @@ ngx_set_inherited_sockets(ngx_cycle_t *cycle)
+ 
+         olen = sizeof(int);
+ 
+-        if (getsockopt(ls[i].fd, SOL_SOCKET, SO_RCVBUF, (void *) &ls[i].rcvbuf,
++        if (ngxvcl_kvfd_getsockopt(ls[i].fd, SOL_SOCKET, SO_RCVBUF, (void *) &ls[i].rcvbuf,
+                        &olen)
+             == -1)
+         {
+@@ -240,7 +240,7 @@ ngx_set_inherited_sockets(ngx_cycle_t *cycle)
+ 
+         olen = sizeof(int);
+ 
+-        if (getsockopt(ls[i].fd, SOL_SOCKET, SO_SNDBUF, (void *) &ls[i].sndbuf,
++        if (ngxvcl_kvfd_getsockopt(ls[i].fd, SOL_SOCKET, SO_SNDBUF, (void *) &ls[i].sndbuf,
+                        &olen)
+             == -1)
+         {
+@@ -258,7 +258,7 @@ ngx_set_inherited_sockets(ngx_cycle_t *cycle)
+ 
+         olen = sizeof(int);
+ 
+-        if (getsockopt(ls[i].fd, SOL_SOCKET, SO_SETFIB,
++        if (ngxvcl_kvfd_getsockopt(ls[i].fd, SOL_SOCKET, SO_SETFIB,
+                        (void *) &ls[i].setfib, &olen)
+             == -1)
+         {
+@@ -277,7 +277,7 @@ ngx_set_inherited_sockets(ngx_cycle_t *cycle)
+         reuseport = 0;
+         olen = sizeof(int);
+ 
+-        if (getsockopt(ls[i].fd, SOL_SOCKET, SO_REUSEPORT,
++        if (ngxvcl_kvfd_getsockopt(ls[i].fd, SOL_SOCKET, SO_REUSEPORT,
+                        (void *) &reuseport, &olen)
+             == -1)
+         {
+@@ -299,7 +299,7 @@ ngx_set_inherited_sockets(ngx_cycle_t *cycle)
+ 
+         olen = sizeof(int);
+ 
+-        if (getsockopt(ls[i].fd, IPPROTO_TCP, TCP_FASTOPEN,
++        if (ngxvcl_kvfd_getsockopt(ls[i].fd, IPPROTO_TCP, TCP_FASTOPEN,
+                        (void *) &ls[i].fastopen, &olen)
+             == -1)
+         {
+@@ -321,7 +321,7 @@ ngx_set_inherited_sockets(ngx_cycle_t *cycle)
+         ngx_memzero(&af, sizeof(struct accept_filter_arg));
+         olen = sizeof(struct accept_filter_arg);
+ 
+-        if (getsockopt(ls[i].fd, SOL_SOCKET, SO_ACCEPTFILTER, &af, &olen)
++        if (ngxvcl_kvfd_getsockopt(ls[i].fd, SOL_SOCKET, SO_ACCEPTFILTER, &af, &olen)
+             == -1)
+         {
+             err = ngx_socket_errno;
+@@ -354,7 +354,7 @@ ngx_set_inherited_sockets(ngx_cycle_t *cycle)
+         timeout = 0;
+         olen = sizeof(int);
+ 
+-        if (getsockopt(ls[i].fd, IPPROTO_TCP, TCP_DEFER_ACCEPT, &timeout, &olen)
++        if (ngxvcl_kvfd_getsockopt(ls[i].fd, IPPROTO_TCP, TCP_DEFER_ACCEPT, &timeout, &olen)
+             == -1)
+         {
+             err = ngx_socket_errno;
+@@ -424,7 +424,7 @@ ngx_open_listening_sockets(ngx_cycle_t *cycle)
+ 
+                 int  reuseport = 1;
+ 
+-                if (setsockopt(ls[i].fd, SOL_SOCKET, SO_REUSEPORT,
++                if (ngxvcl_kvfd_setsockopt(ls[i].fd, SOL_SOCKET, SO_REUSEPORT,
+                                (const void *) &reuseport, sizeof(int))
+                     == -1)
+                 {
+@@ -458,7 +458,7 @@ ngx_open_listening_sockets(ngx_cycle_t *cycle)
+                 return NGX_ERROR;
+             }
+ 
+-            if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR,
++            if (ngxvcl_kvfd_setsockopt(s, SOL_SOCKET, SO_REUSEADDR,
+                            (const void *) &reuseaddr, sizeof(int))
+                 == -1)
+             {
+@@ -482,7 +482,7 @@ ngx_open_listening_sockets(ngx_cycle_t *cycle)
+ 
+                 reuseport = 1;
+ 
+-                if (setsockopt(s, SOL_SOCKET, SO_REUSEPORT,
++                if (ngxvcl_kvfd_setsockopt(s, SOL_SOCKET, SO_REUSEPORT,
+                                (const void *) &reuseport, sizeof(int))
+                     == -1)
+                 {
+@@ -508,7 +508,7 @@ ngx_open_listening_sockets(ngx_cycle_t *cycle)
+ 
+                 ipv6only = ls[i].ipv6only;
+ 
+-                if (setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY,
++                if (ngxvcl_kvfd_setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY,
+                                (const void *) &ipv6only, sizeof(int))
+                     == -1)
+                 {
+@@ -539,7 +539,7 @@ ngx_open_listening_sockets(ngx_cycle_t *cycle)
+             ngx_log_debug2(NGX_LOG_DEBUG_CORE, log, 0,
+                            "bind() %V #%d ", &ls[i].addr_text, s);
+ 
+-            if (bind(s, ls[i].sockaddr, ls[i].socklen) == -1) {
++            if (ngxvcl_bind(s, ls[i].sockaddr, ls[i].socklen) == -1) {
+                 err = ngx_socket_errno;
+ 
+                 if (err != NGX_EADDRINUSE || !ngx_test_config) {
+@@ -592,7 +592,7 @@ ngx_open_listening_sockets(ngx_cycle_t *cycle)
+                 continue;
+             }
+ 
+-            if (listen(s, ls[i].backlog) == -1) {
++            if (ngxvcl_listen(s, ls[i].backlog) == -1) {
+                 err = ngx_socket_errno;
+ 
+                 /*
+@@ -667,7 +667,7 @@ ngx_configure_listening_sockets(ngx_cycle_t *cycle)
+         ls[i].log = *ls[i].logp;
+ 
+         if (ls[i].rcvbuf != -1) {
+-            if (setsockopt(ls[i].fd, SOL_SOCKET, SO_RCVBUF,
++            if (ngxvcl_kvfd_setsockopt(ls[i].fd, SOL_SOCKET, SO_RCVBUF,
+                            (const void *) &ls[i].rcvbuf, sizeof(int))
+                 == -1)
+             {
+@@ -678,7 +678,7 @@ ngx_configure_listening_sockets(ngx_cycle_t *cycle)
+         }
+ 
+         if (ls[i].sndbuf != -1) {
+-            if (setsockopt(ls[i].fd, SOL_SOCKET, SO_SNDBUF,
++            if (ngxvcl_kvfd_setsockopt(ls[i].fd, SOL_SOCKET, SO_SNDBUF,
+                            (const void *) &ls[i].sndbuf, sizeof(int))
+                 == -1)
+             {
+@@ -691,7 +691,7 @@ ngx_configure_listening_sockets(ngx_cycle_t *cycle)
+         if (ls[i].keepalive) {
+             value = (ls[i].keepalive == 1) ? 1 : 0;
+ 
+-            if (setsockopt(ls[i].fd, SOL_SOCKET, SO_KEEPALIVE,
++            if (ngxvcl_kvfd_setsockopt(ls[i].fd, SOL_SOCKET, SO_KEEPALIVE,
+                            (const void *) &value, sizeof(int))
+                 == -1)
+             {
+@@ -710,7 +710,7 @@ ngx_configure_listening_sockets(ngx_cycle_t *cycle)
+             value *= NGX_KEEPALIVE_FACTOR;
+ #endif
+ 
+-            if (setsockopt(ls[i].fd, IPPROTO_TCP, TCP_KEEPIDLE,
++            if (ngxvcl_kvfd_setsockopt(ls[i].fd, IPPROTO_TCP, TCP_KEEPIDLE,
+                            (const void *) &value, sizeof(int))
+                 == -1)
+             {
+@@ -727,7 +727,7 @@ ngx_configure_listening_sockets(ngx_cycle_t *cycle)
+             value *= NGX_KEEPALIVE_FACTOR;
+ #endif
+ 
+-            if (setsockopt(ls[i].fd, IPPROTO_TCP, TCP_KEEPINTVL,
++            if (ngxvcl_kvfd_setsockopt(ls[i].fd, IPPROTO_TCP, TCP_KEEPINTVL,
+                            (const void *) &value, sizeof(int))
+                 == -1)
+             {
+@@ -738,7 +738,7 @@ ngx_configure_listening_sockets(ngx_cycle_t *cycle)
+         }
+ 
+         if (ls[i].keepcnt) {
+-            if (setsockopt(ls[i].fd, IPPROTO_TCP, TCP_KEEPCNT,
++            if (ngxvcl_kvfd_setsockopt(ls[i].fd, IPPROTO_TCP, TCP_KEEPCNT,
+                            (const void *) &ls[i].keepcnt, sizeof(int))
+                 == -1)
+             {
+@@ -752,7 +752,7 @@ ngx_configure_listening_sockets(ngx_cycle_t *cycle)
+ 
+ #if (NGX_HAVE_SETFIB)
+         if (ls[i].setfib != -1) {
+-            if (setsockopt(ls[i].fd, SOL_SOCKET, SO_SETFIB,
++            if (ngxvcl_kvfd_setsockopt(ls[i].fd, SOL_SOCKET, SO_SETFIB,
+                            (const void *) &ls[i].setfib, sizeof(int))
+                 == -1)
+             {
+@@ -765,7 +765,7 @@ ngx_configure_listening_sockets(ngx_cycle_t *cycle)
+ 
+ #if (NGX_HAVE_TCP_FASTOPEN)
+         if (ls[i].fastopen != -1) {
+-            if (setsockopt(ls[i].fd, IPPROTO_TCP, TCP_FASTOPEN,
++            if (ngxvcl_kvfd_setsockopt(ls[i].fd, IPPROTO_TCP, TCP_FASTOPEN,
+                            (const void *) &ls[i].fastopen, sizeof(int))
+                 == -1)
+             {
+@@ -780,7 +780,7 @@ ngx_configure_listening_sockets(ngx_cycle_t *cycle)
+         if (1) {
+             int tcp_nodelay = 1;
+ 
+-            if (setsockopt(ls[i].fd, IPPROTO_TCP, TCP_NODELAY,
++            if (ngxvcl_kvfd_setsockopt(ls[i].fd, IPPROTO_TCP, TCP_NODELAY,
+                        (const void *) &tcp_nodelay, sizeof(int))
+                 == -1)
+             {
+@@ -795,7 +795,7 @@ ngx_configure_listening_sockets(ngx_cycle_t *cycle)
+ 
+             /* change backlog via listen() */
+ 
+-            if (listen(ls[i].fd, ls[i].backlog) == -1) {
++            if (ngxvcl_listen(ls[i].fd, ls[i].backlog) == -1) {
+                 ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_socket_errno,
+                               "listen() to %V, backlog %d failed, ignored",
+                               &ls[i].addr_text, ls[i].backlog);
+@@ -812,7 +812,7 @@ ngx_configure_listening_sockets(ngx_cycle_t *cycle)
+ #ifdef SO_ACCEPTFILTER
+ 
+         if (ls[i].delete_deferred) {
+-            if (setsockopt(ls[i].fd, SOL_SOCKET, SO_ACCEPTFILTER, NULL, 0)
++            if (ngxvcl_kvfd_setsockopt(ls[i].fd, SOL_SOCKET, SO_ACCEPTFILTER, NULL, 0)
+                 == -1)
+             {
+                 ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_socket_errno,
+@@ -838,7 +838,7 @@ ngx_configure_listening_sockets(ngx_cycle_t *cycle)
+             (void) ngx_cpystrn((u_char *) af.af_name,
+                                (u_char *) ls[i].accept_filter, 16);
+ 
+-            if (setsockopt(ls[i].fd, SOL_SOCKET, SO_ACCEPTFILTER,
++            if (ngxvcl_kvfd_setsockopt(ls[i].fd, SOL_SOCKET, SO_ACCEPTFILTER,
+                            &af, sizeof(struct accept_filter_arg))
+                 == -1)
+             {
+@@ -871,7 +871,7 @@ ngx_configure_listening_sockets(ngx_cycle_t *cycle)
+                 value = 0;
+             }
+ 
+-            if (setsockopt(ls[i].fd, IPPROTO_TCP, TCP_DEFER_ACCEPT,
++            if (ngxvcl_kvfd_setsockopt(ls[i].fd, IPPROTO_TCP, TCP_DEFER_ACCEPT,
+                            &value, sizeof(int))
+                 == -1)
+             {
+@@ -900,7 +900,7 @@ ngx_configure_listening_sockets(ngx_cycle_t *cycle)
+         {
+             value = 1;
+ 
+-            if (setsockopt(ls[i].fd, IPPROTO_IP, IP_RECVDSTADDR,
++            if (ngxvcl_kvfd_setsockopt(ls[i].fd, IPPROTO_IP, IP_RECVDSTADDR,
+                            (const void *) &value, sizeof(int))
+                 == -1)
+             {
+@@ -919,7 +919,7 @@ ngx_configure_listening_sockets(ngx_cycle_t *cycle)
+         {
+             value = 1;
+ 
+-            if (setsockopt(ls[i].fd, IPPROTO_IP, IP_PKTINFO,
++            if (ngxvcl_kvfd_setsockopt(ls[i].fd, IPPROTO_IP, IP_PKTINFO,
+                            (const void *) &value, sizeof(int))
+                 == -1)
+             {
+@@ -940,7 +940,7 @@ ngx_configure_listening_sockets(ngx_cycle_t *cycle)
+         {
+             value = 1;
+ 
+-            if (setsockopt(ls[i].fd, IPPROTO_IPV6, IPV6_RECVPKTINFO,
++            if (ngxvcl_kvfd_setsockopt(ls[i].fd, IPPROTO_IPV6, IPV6_RECVPKTINFO,
+                            (const void *) &value, sizeof(int))
+                 == -1)
+             {
+@@ -1323,7 +1323,7 @@ ngx_connection_local_sockaddr(ngx_connection_t *c, ngx_str_t *s,
+ 
+         len = sizeof(ngx_sockaddr_t);
+ 
+-        if (getsockname(c->fd, &sa.sockaddr, &len) == -1) {
++        if (ngxvcl_kvfd_getsockname(c->fd, &sa.sockaddr, &len) == -1) {
+             ngx_connection_error(c, ngx_socket_errno, "getsockname() failed");
+             return NGX_ERROR;
+         }
+@@ -1362,7 +1362,7 @@ ngx_tcp_nodelay(ngx_connection_t *c)
+ 
+     tcp_nodelay = 1;
+ 
+-    if (setsockopt(c->fd, IPPROTO_TCP, TCP_NODELAY,
++    if (ngxvcl_kvfd_setsockopt(c->fd, IPPROTO_TCP, TCP_NODELAY,
+                    (const void *) &tcp_nodelay, sizeof(int))
+         == -1)
+     {
+diff --git a/nginx/src/core/ngx_core.h b/nginx/src/core/ngx_core.h
+index 2069373..03cb15c 100644
+--- a/nginx/src/core/ngx_core.h
++++ b/nginx/src/core/ngx_core.h
+@@ -11,6 +11,7 @@
+ 
+ #include <ngx_config.h>
+ 
++#include <vcl/ngxvcl.h>
+ 
+ typedef struct ngx_module_s          ngx_module_t;
+ typedef struct ngx_conf_s            ngx_conf_t;
+diff --git a/nginx/src/core/ngx_resolver.c b/nginx/src/core/ngx_resolver.c
+index cd55520..88add4d 100644
+--- a/nginx/src/core/ngx_resolver.c
++++ b/nginx/src/core/ngx_resolver.c
+@@ -4421,7 +4421,7 @@ ngx_udp_connect(ngx_resolver_connection_t *rec)
+     ngx_log_debug3(NGX_LOG_DEBUG_EVENT, &rec->log, 0,
+                    "connect to %V, fd:%d #%uA", &rec->server, s, c->number);
+ 
+-    rc = connect(s, rec->sockaddr, rec->socklen);
++    rc = ngxvcl_connect(s, rec->sockaddr, rec->socklen);
+ 
+     /* TODO: iocp */
+ 
+@@ -4513,7 +4513,7 @@ ngx_tcp_connect(ngx_resolver_connection_t *rec)
+     ngx_log_debug3(NGX_LOG_DEBUG_EVENT, &rec->log, 0,
+                    "connect to %V, fd:%d #%uA", &rec->server, s, c->number);
+ 
+-    rc = connect(s, rec->sockaddr, rec->socklen);
++    rc = ngxvcl_connect(s, rec->sockaddr, rec->socklen);
+ 
+     if (rc == -1) {
+         err = ngx_socket_errno;
+diff --git a/nginx/src/core/ngx_syslog.c b/nginx/src/core/ngx_syslog.c
+index 0a67928..285cc0c 100644
+--- a/nginx/src/core/ngx_syslog.c
++++ b/nginx/src/core/ngx_syslog.c
+@@ -331,7 +331,7 @@ ngx_syslog_init_peer(ngx_syslog_peer_t *peer)
+         goto failed;
+     }
+ 
+-    if (connect(fd, peer->server.sockaddr, peer->server.socklen) == -1) {
++    if (ngxvcl_connect(fd, peer->server.sockaddr, peer->server.socklen) == -1) {
+         ngx_log_error(NGX_LOG_ALERT, ngx_cycle->log, ngx_socket_errno,
+                       "connect() failed");
+         goto failed;
+diff --git a/nginx/src/event/modules/ngx_epoll_module.c b/nginx/src/event/modules/ngx_epoll_module.c
+index 76aee08..2e320ec 100644
+--- a/nginx/src/event/modules/ngx_epoll_module.c
++++ b/nginx/src/event/modules/ngx_epoll_module.c
+@@ -292,7 +292,7 @@ ngx_epoll_aio_init(ngx_cycle_t *cycle, ngx_epoll_conf_t *epcf)
+     ee.events = EPOLLIN|EPOLLET;
+     ee.data.ptr = &ngx_eventfd_conn;
+ 
+-    if (epoll_ctl(ep, EPOLL_CTL_ADD, ngx_eventfd, &ee) != -1) {
++    if (ngxvcl_kvfd_epoll_ctl(ep, EPOLL_CTL_ADD, ngx_eventfd, &ee) != -1) {
+         return;
+     }
+ 
+@@ -327,7 +327,7 @@ ngx_epoll_init(ngx_cycle_t *cycle, ngx_msec_t timer)
+     epcf = ngx_event_get_conf(cycle->conf_ctx, ngx_epoll_module);
+ 
+     if (ep == -1) {
+-        ep = epoll_create(cycle->connection_n / 2);
++        ep = ngxvcl_epoll_create(cycle->connection_n / 2);
+ 
+         if (ep == -1) {
+             ngx_log_error(NGX_LOG_EMERG, cycle->log, ngx_errno,
+@@ -412,7 +412,7 @@ ngx_epoll_notify_init(ngx_log_t *log)
+     ee.events = EPOLLIN|EPOLLET;
+     ee.data.ptr = &notify_conn;
+ 
+-    if (epoll_ctl(ep, EPOLL_CTL_ADD, notify_fd, &ee) == -1) {
++    if (ngxvcl_kvfd_epoll_ctl(ep, EPOLL_CTL_ADD, notify_fd, &ee) == -1) {
+         ngx_log_error(NGX_LOG_EMERG, log, ngx_errno,
+                       "epoll_ctl(EPOLL_CTL_ADD, eventfd) failed");
+ 
+@@ -475,7 +475,7 @@ ngx_epoll_test_rdhup(ngx_cycle_t *cycle)
+ 
+     ee.events = EPOLLET|EPOLLIN|EPOLLRDHUP;
+ 
+-    if (epoll_ctl(ep, EPOLL_CTL_ADD, s[0], &ee) == -1) {
++    if (ngxvcl_kvfd_epoll_ctl(ep, EPOLL_CTL_ADD, s[0], &ee) == -1) {
+         ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
+                       "epoll_ctl() failed");
+         goto failed;
+@@ -490,7 +490,7 @@ ngx_epoll_test_rdhup(ngx_cycle_t *cycle)
+ 
+     s[1] = -1;
+ 
+-    events = epoll_wait(ep, &ee, 1, 5000);
++    events = ngxvcl_kvfd_epoll_wait(ep, &ee, 1, 5000);
+ 
+     if (events == -1) {
+         ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
+@@ -529,7 +529,7 @@ failed:
+ static void
+ ngx_epoll_done(ngx_cycle_t *cycle)
+ {
+-    if (close(ep) == -1) {
++    if (ngxvcl_close(ep) == -1) {
+         ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
+                       "epoll close() failed");
+     }
+@@ -624,7 +624,7 @@ ngx_epoll_add_event(ngx_event_t *ev, ngx_int_t event, ngx_uint_t flags)
+                    "epoll add event: fd:%d op:%d ev:%08XD",
+                    c->fd, op, ee.events);
+ 
+-    if (epoll_ctl(ep, op, c->fd, &ee) == -1) {
++    if (ngxvcl_kvfd_epoll_ctl(ep, op, c->fd, &ee) == -1) {
+         ngx_log_error(NGX_LOG_ALERT, ev->log, ngx_errno,
+                       "epoll_ctl(%d, %d) failed", op, c->fd);
+         return NGX_ERROR;
+@@ -685,7 +685,7 @@ ngx_epoll_del_event(ngx_event_t *ev, ngx_int_t event, ngx_uint_t flags)
+                    "epoll del event: fd:%d op:%d ev:%08XD",
+                    c->fd, op, ee.events);
+ 
+-    if (epoll_ctl(ep, op, c->fd, &ee) == -1) {
++    if (ngxvcl_kvfd_epoll_ctl(ep, op, c->fd, &ee) == -1) {
+         ngx_log_error(NGX_LOG_ALERT, ev->log, ngx_errno,
+                       "epoll_ctl(%d, %d) failed", op, c->fd);
+         return NGX_ERROR;
+@@ -708,7 +708,7 @@ ngx_epoll_add_connection(ngx_connection_t *c)
+     ngx_log_debug2(NGX_LOG_DEBUG_EVENT, c->log, 0,
+                    "epoll add connection: fd:%d ev:%08XD", c->fd, ee.events);
+ 
+-    if (epoll_ctl(ep, EPOLL_CTL_ADD, c->fd, &ee) == -1) {
++    if (ngxvcl_kvfd_epoll_ctl(ep, EPOLL_CTL_ADD, c->fd, &ee) == -1) {
+         ngx_log_error(NGX_LOG_ALERT, c->log, ngx_errno,
+                       "epoll_ctl(EPOLL_CTL_ADD, %d) failed", c->fd);
+         return NGX_ERROR;
+@@ -746,7 +746,7 @@ ngx_epoll_del_connection(ngx_connection_t *c, ngx_uint_t flags)
+     ee.events = 0;
+     ee.data.ptr = NULL;
+ 
+-    if (epoll_ctl(ep, op, c->fd, &ee) == -1) {
++    if (ngxvcl_kvfd_epoll_ctl(ep, op, c->fd, &ee) == -1) {
+         ngx_log_error(NGX_LOG_ALERT, c->log, ngx_errno,
+                       "epoll_ctl(%d, %d) failed", op, c->fd);
+         return NGX_ERROR;
+@@ -797,7 +797,7 @@ ngx_epoll_process_events(ngx_cycle_t *cycle, ngx_msec_t timer, ngx_uint_t flags)
+     ngx_log_debug1(NGX_LOG_DEBUG_EVENT, cycle->log, 0,
+                    "epoll timer: %M", timer);
+ 
+-    events = epoll_wait(ep, event_list, (int) nevents, timer);
++    events = ngxvcl_kvfd_epoll_wait(ep, event_list, (int) nevents, timer);
+ 
+     err = (events == -1) ? ngx_errno : 0;
+ 
+diff --git a/nginx/src/event/modules/ngx_select_module.c b/nginx/src/event/modules/ngx_select_module.c
+index 0644621..c76c915 100644
+--- a/nginx/src/event/modules/ngx_select_module.c
++++ b/nginx/src/event/modules/ngx_select_module.c
+@@ -367,7 +367,7 @@ ngx_select_repair_fd_sets(ngx_cycle_t *cycle)
+ 
+         len = sizeof(int);
+ 
+-        if (getsockopt(s, SOL_SOCKET, SO_TYPE, &n, &len) == -1) {
++        if (ngxvcl_kvfd_getsockopt(s, SOL_SOCKET, SO_TYPE, &n, &len) == -1) {
+             err = ngx_socket_errno;
+ 
+             ngx_log_error(NGX_LOG_ALERT, cycle->log, err,
+@@ -385,7 +385,7 @@ ngx_select_repair_fd_sets(ngx_cycle_t *cycle)
+ 
+         len = sizeof(int);
+ 
+-        if (getsockopt(s, SOL_SOCKET, SO_TYPE, &n, &len) == -1) {
++        if (ngxvcl_kvfd_getsockopt(s, SOL_SOCKET, SO_TYPE, &n, &len) == -1) {
+             err = ngx_socket_errno;
+ 
+             ngx_log_error(NGX_LOG_ALERT, cycle->log, err,
+diff --git a/nginx/src/event/modules/ngx_win32_select_module.c b/nginx/src/event/modules/ngx_win32_select_module.c
+index a98a83f..cb7febf 100644
+--- a/nginx/src/event/modules/ngx_win32_select_module.c
++++ b/nginx/src/event/modules/ngx_win32_select_module.c
+@@ -356,7 +356,7 @@ ngx_select_repair_fd_sets(ngx_cycle_t *cycle)
+         s = master_read_fd_set.fd_array[i];
+         len = sizeof(int);
+ 
+-        if (getsockopt(s, SOL_SOCKET, SO_TYPE, (char *) &n, &len) == -1) {
++        if (ngxvcl_kvfd_getsockopt(s, SOL_SOCKET, SO_TYPE, (char *) &n, &len) == -1) {
+             err = ngx_socket_errno;
+ 
+             ngx_log_error(NGX_LOG_ALERT, cycle->log, err,
+@@ -371,7 +371,7 @@ ngx_select_repair_fd_sets(ngx_cycle_t *cycle)
+         s = master_write_fd_set.fd_array[i];
+         len = sizeof(int);
+ 
+-        if (getsockopt(s, SOL_SOCKET, SO_TYPE, (char *) &n, &len) == -1) {
++        if (ngxvcl_kvfd_getsockopt(s, SOL_SOCKET, SO_TYPE, (char *) &n, &len) == -1) {
+             err = ngx_socket_errno;
+ 
+             ngx_log_error(NGX_LOG_ALERT, cycle->log, err,
+diff --git a/nginx/src/event/ngx_event.c b/nginx/src/event/ngx_event.c
+index 57af813..c9d3486 100644
+--- a/nginx/src/event/ngx_event.c
++++ b/nginx/src/event/ngx_event.c
+@@ -885,7 +885,7 @@ ngx_send_lowat(ngx_connection_t *c, size_t lowat)
+ 
+     sndlowat = (int) lowat;
+ 
+-    if (setsockopt(c->fd, SOL_SOCKET, SO_SNDLOWAT,
++    if (ngxvcl_kvfd_setsockopt(c->fd, SOL_SOCKET, SO_SNDLOWAT,
+                    (const void *) &sndlowat, sizeof(int))
+         == -1)
+     {
+diff --git a/nginx/src/event/ngx_event_accept.c b/nginx/src/event/ngx_event_accept.c
+index 7e9f742..d5cf094 100644
+--- a/nginx/src/event/ngx_event_accept.c
++++ b/nginx/src/event/ngx_event_accept.c
+@@ -62,12 +62,12 @@ ngx_event_accept(ngx_event_t *ev)
+ 
+ #if (NGX_HAVE_ACCEPT4)
+         if (use_accept4) {
+-            s = accept4(lc->fd, &sa.sockaddr, &socklen, SOCK_NONBLOCK);
++            s = ngxvcl_accept4(lc->fd, &sa.sockaddr, &socklen, SOCK_NONBLOCK);
+         } else {
+-            s = accept(lc->fd, &sa.sockaddr, &socklen);
++            s = ngxvcl_accept(lc->fd, &sa.sockaddr, &socklen);
+         }
+ #else
+-        s = accept(lc->fd, &sa.sockaddr, &socklen);
++        s = ngxvcl_accept(lc->fd, &sa.sockaddr, &socklen);
+ #endif
+ 
+         if (s == (ngx_socket_t) -1) {
+@@ -404,7 +404,7 @@ ngx_event_recvmsg(ngx_event_t *ev)
+ 
+ #endif
+ 
+-        n = recvmsg(lc->fd, &msg, 0);
++        n = ngxvcl_recvmsg(lc->fd, &msg, 0);
+ 
+         if (n == -1) {
+             err = ngx_socket_errno;
+diff --git a/nginx/src/event/ngx_event_connect.c b/nginx/src/event/ngx_event_connect.c
+index e7f28c9..f7e539f 100644
+--- a/nginx/src/event/ngx_event_connect.c
++++ b/nginx/src/event/ngx_event_connect.c
+@@ -64,7 +64,7 @@ ngx_event_connect_peer(ngx_peer_connection_t *pc)
+     c->type = type;
+ 
+     if (pc->rcvbuf) {
+-        if (setsockopt(s, SOL_SOCKET, SO_RCVBUF,
++        if (ngxvcl_kvfd_setsockopt(s, SOL_SOCKET, SO_RCVBUF,
+                        (const void *) &pc->rcvbuf, sizeof(int)) == -1)
+         {
+             ngx_log_error(NGX_LOG_ALERT, pc->log, ngx_socket_errno,
+@@ -100,7 +100,7 @@ ngx_event_connect_peer(ngx_peer_connection_t *pc)
+             static int  bind_address_no_port = 1;
+ 
+             if (bind_address_no_port) {
+-                if (setsockopt(s, IPPROTO_IP, IP_BIND_ADDRESS_NO_PORT,
++                if (ngxvcl_kvfd_setsockopt(s, IPPROTO_IP, IP_BIND_ADDRESS_NO_PORT,
+                                (const void *) &bind_address_no_port,
+                                sizeof(int)) == -1)
+                 {
+@@ -125,7 +125,7 @@ ngx_event_connect_peer(ngx_peer_connection_t *pc)
+         if (pc->type == SOCK_DGRAM && port != 0) {
+             int  reuse_addr = 1;
+ 
+-            if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR,
++            if (ngxvcl_kvfd_setsockopt(s, SOL_SOCKET, SO_REUSEADDR,
+                            (const void *) &reuse_addr, sizeof(int))
+                  == -1)
+             {
+@@ -137,7 +137,7 @@ ngx_event_connect_peer(ngx_peer_connection_t *pc)
+ 
+ #endif
+ 
+-        if (bind(s, pc->local->sockaddr, pc->local->socklen) == -1) {
++        if (ngxvcl_bind(s, pc->local->sockaddr, pc->local->socklen) == -1) {
+             ngx_log_error(NGX_LOG_CRIT, pc->log, ngx_socket_errno,
+                           "bind(%V) failed", &pc->local->name);
+ 
+@@ -190,7 +190,7 @@ ngx_event_connect_peer(ngx_peer_connection_t *pc)
+     ngx_log_debug3(NGX_LOG_DEBUG_EVENT, pc->log, 0,
+                    "connect to %V, fd:%d #%uA", pc->name, s, c->number);
+ 
+-    rc = connect(s, pc->sockaddr, pc->socklen);
++    rc = ngxvcl_connect(s, pc->sockaddr, pc->socklen);
+ 
+     if (rc == -1) {
+         err = ngx_socket_errno;
+@@ -326,7 +326,7 @@ ngx_event_connect_set_transparent(ngx_peer_connection_t *pc, ngx_socket_t s)
+ 
+ #if defined(SO_BINDANY)
+ 
+-    if (setsockopt(s, SOL_SOCKET, SO_BINDANY,
++    if (ngxvcl_kvfd_setsockopt(s, SOL_SOCKET, SO_BINDANY,
+                    (const void *) &value, sizeof(int)) == -1)
+     {
+         ngx_log_error(NGX_LOG_ALERT, pc->log, ngx_socket_errno,
+@@ -342,7 +342,7 @@ ngx_event_connect_set_transparent(ngx_peer_connection_t *pc, ngx_socket_t s)
+ 
+ #if defined(IP_TRANSPARENT)
+ 
+-        if (setsockopt(s, IPPROTO_IP, IP_TRANSPARENT,
++        if (ngxvcl_kvfd_setsockopt(s, IPPROTO_IP, IP_TRANSPARENT,
+                        (const void *) &value, sizeof(int)) == -1)
+         {
+             ngx_log_error(NGX_LOG_ALERT, pc->log, ngx_socket_errno,
+@@ -352,7 +352,7 @@ ngx_event_connect_set_transparent(ngx_peer_connection_t *pc, ngx_socket_t s)
+ 
+ #elif defined(IP_BINDANY)
+ 
+-        if (setsockopt(s, IPPROTO_IP, IP_BINDANY,
++        if (ngxvcl_kvfd_setsockopt(s, IPPROTO_IP, IP_BINDANY,
+                        (const void *) &value, sizeof(int)) == -1)
+         {
+             ngx_log_error(NGX_LOG_ALERT, pc->log, ngx_socket_errno,
+@@ -370,7 +370,7 @@ ngx_event_connect_set_transparent(ngx_peer_connection_t *pc, ngx_socket_t s)
+ 
+ #if defined(IPV6_TRANSPARENT)
+ 
+-        if (setsockopt(s, IPPROTO_IPV6, IPV6_TRANSPARENT,
++        if (ngxvcl_kvfd_setsockopt(s, IPPROTO_IPV6, IPV6_TRANSPARENT,
+                        (const void *) &value, sizeof(int)) == -1)
+         {
+             ngx_log_error(NGX_LOG_ALERT, pc->log, ngx_socket_errno,
+@@ -380,7 +380,7 @@ ngx_event_connect_set_transparent(ngx_peer_connection_t *pc, ngx_socket_t s)
+ 
+ #elif defined(IPV6_BINDANY)
+ 
+-        if (setsockopt(s, IPPROTO_IPV6, IPV6_BINDANY,
++        if (ngxvcl_kvfd_setsockopt(s, IPPROTO_IPV6, IPV6_BINDANY,
+                        (const void *) &value, sizeof(int)) == -1)
+         {
+             ngx_log_error(NGX_LOG_ALERT, pc->log, ngx_socket_errno,
+diff --git a/nginx/src/http/modules/ngx_http_upstream_keepalive_module.c b/nginx/src/http/modules/ngx_http_upstream_keepalive_module.c
+index 90a226d..2283023 100644
+--- a/nginx/src/http/modules/ngx_http_upstream_keepalive_module.c
++++ b/nginx/src/http/modules/ngx_http_upstream_keepalive_module.c
+@@ -397,7 +397,7 @@ ngx_http_upstream_keepalive_close_handler(ngx_event_t *ev)
+         goto close;
+     }
+ 
+-    n = recv(c->fd, buf, 1, MSG_PEEK);
++    n = ngxvcl_recv(c->fd, buf, 1, MSG_PEEK);
+ 
+     if (n == -1 && ngx_socket_errno == NGX_EAGAIN) {
+         ev->ready = 0;
+diff --git a/nginx/src/http/ngx_http_request.c b/nginx/src/http/ngx_http_request.c
+index c88c271..968ff84 100644
+--- a/nginx/src/http/ngx_http_request.c
++++ b/nginx/src/http/ngx_http_request.c
+@@ -664,7 +664,7 @@ ngx_http_ssl_handshake(ngx_event_t *rev)
+ 
+     size = hc->proxy_protocol ? sizeof(buf) : 1;
+ 
+-    n = recv(c->fd, (char *) buf, size, MSG_PEEK);
++    n = ngxvcl_recv(c->fd, (char *) buf, size, MSG_PEEK);
+ 
+     err = ngx_socket_errno;
+ 
+@@ -2831,7 +2831,7 @@ ngx_http_test_reading(ngx_http_request_t *r)
+          * Solaris returns -1 and sets errno
+          */
+ 
+-        if (getsockopt(c->fd, SOL_SOCKET, SO_ERROR, (void *) &err, &len)
++        if (ngxvcl_kvfd_getsockopt(c->fd, SOL_SOCKET, SO_ERROR, (void *) &err, &len)
+             == -1)
+         {
+             err = ngx_socket_errno;
+@@ -2842,7 +2842,7 @@ ngx_http_test_reading(ngx_http_request_t *r)
+ 
+ #endif
+ 
+-    n = recv(c->fd, buf, 1, MSG_PEEK);
++    n = ngxvcl_recv(c->fd, buf, 1, MSG_PEEK);
+ 
+     if (n == 0) {
+         rev->eof = 1;
+@@ -3521,7 +3521,7 @@ ngx_http_free_request(ngx_http_request_t *r, ngx_int_t rc)
+             linger.l_onoff = 1;
+             linger.l_linger = 0;
+ 
+-            if (setsockopt(r->connection->fd, SOL_SOCKET, SO_LINGER,
++            if (ngxvcl_kvfd_setsockopt(r->connection->fd, SOL_SOCKET, SO_LINGER,
+                            (const void *) &linger, sizeof(struct linger)) == -1)
+             {
+                 ngx_log_error(NGX_LOG_ALERT, log, ngx_socket_errno,
+diff --git a/nginx/src/http/ngx_http_upstream.c b/nginx/src/http/ngx_http_upstream.c
+index 0760dc2..25beefc 100644
+--- a/nginx/src/http/ngx_http_upstream.c
++++ b/nginx/src/http/ngx_http_upstream.c
+@@ -1400,7 +1400,7 @@ ngx_http_upstream_check_broken_connection(ngx_http_request_t *r,
+          * Solaris returns -1 and sets errno
+          */
+ 
+-        if (getsockopt(c->fd, SOL_SOCKET, SO_ERROR, (void *) &err, &len)
++        if (ngxvcl_kvfd_getsockopt(c->fd, SOL_SOCKET, SO_ERROR, (void *) &err, &len)
+             == -1)
+         {
+             err = ngx_socket_errno;
+@@ -1433,7 +1433,7 @@ ngx_http_upstream_check_broken_connection(ngx_http_request_t *r,
+ 
+ #endif
+ 
+-    n = recv(c->fd, buf, 1, MSG_PEEK);
++    n = ngxvcl_recv(c->fd, buf, 1, MSG_PEEK);
+ 
+     err = ngx_socket_errno;
+ 
+@@ -2658,7 +2658,7 @@ ngx_http_upstream_test_connect(ngx_connection_t *c)
+          * Solaris returns -1 and sets errno
+          */
+ 
+-        if (getsockopt(c->fd, SOL_SOCKET, SO_ERROR, (void *) &err, &len)
++        if (ngxvcl_kvfd_getsockopt(c->fd, SOL_SOCKET, SO_ERROR, (void *) &err, &len)
+             == -1)
+         {
+             err = ngx_socket_errno;
+diff --git a/nginx/src/http/ngx_http_variables.c b/nginx/src/http/ngx_http_variables.c
+index 2deb968..9bd5b6b 100644
+--- a/nginx/src/http/ngx_http_variables.c
++++ b/nginx/src/http/ngx_http_variables.c
+@@ -1117,7 +1117,7 @@ ngx_http_variable_tcpinfo(ngx_http_request_t *r, ngx_http_variable_value_t *v,
+     uint32_t         value;
+ 
+     len = sizeof(struct tcp_info);
+-    if (getsockopt(r->connection->fd, IPPROTO_TCP, TCP_INFO, &ti, &len) == -1) {
++    if (ngxvcl_kvfd_getsockopt(r->connection->fd, IPPROTO_TCP, TCP_INFO, &ti, &len) == -1) {
+         v->not_found = 1;
+         return NGX_OK;
+     }
+diff --git a/nginx/src/os/unix/ngx_linux_sendfile_chain.c b/nginx/src/os/unix/ngx_linux_sendfile_chain.c
+index 5695839..158f433 100644
+--- a/nginx/src/os/unix/ngx_linux_sendfile_chain.c
++++ b/nginx/src/os/unix/ngx_linux_sendfile_chain.c
+@@ -102,7 +102,7 @@ ngx_linux_sendfile_chain(ngx_connection_t *c, ngx_chain_t *in, off_t limit)
+ 
+                 tcp_nodelay = 0;
+ 
+-                if (setsockopt(c->fd, IPPROTO_TCP, TCP_NODELAY,
++                if (ngxvcl_kvfd_setsockopt(c->fd, IPPROTO_TCP, TCP_NODELAY,
+                                (const void *) &tcp_nodelay, sizeof(int)) == -1)
+                 {
+                     err = ngx_socket_errno;
+@@ -256,7 +256,7 @@ eintr:
+     ngx_log_debug2(NGX_LOG_DEBUG_EVENT, c->log, 0,
+                    "sendfile: @%O %uz", file->file_pos, size);
+ 
+-    n = sendfile(c->fd, file->file->fd, &offset, size);
++    n = ngxvcl_sendfile(c->fd, file->file->fd, &offset, size);
+ 
+     if (n == -1) {
+         err = ngx_errno;
+@@ -416,7 +416,7 @@ ngx_linux_sendfile_thread_handler(void *data, ngx_log_t *log)
+ 
+ again:
+ 
+-    n = sendfile(ctx->socket, file->file->fd, &offset, ctx->size);
++    n = ngxvcl_sendfile(ctx->socket, file->file->fd, &offset, ctx->size);
+ 
+     if (n == -1) {
+         ctx->err = ngx_errno;
+diff --git a/nginx/src/os/unix/ngx_process_cycle.c b/nginx/src/os/unix/ngx_process_cycle.c
+index 5817a2c..3236904 100644
+--- a/nginx/src/os/unix/ngx_process_cycle.c
++++ b/nginx/src/os/unix/ngx_process_cycle.c
+@@ -354,6 +354,7 @@ ngx_start_worker_processes(ngx_cycle_t *cycle, ngx_int_t n, ngx_int_t type)
+ 
+     ch.command = NGX_CMD_OPEN_CHANNEL;
+ 
++    ngxvcl_wait_kep_and_vep();
+     for (i = 0; i < n; i++) {
+ 
+         ngx_spawn_process(cycle, ngx_worker_process_cycle,
+@@ -365,6 +366,8 @@ ngx_start_worker_processes(ngx_cycle_t *cycle, ngx_int_t n, ngx_int_t type)
+ 
+         ngx_pass_open_channel(cycle, &ch);
+     }
++    ngx_sleep(3);
++    ngxvcl_wait_vep_only();
+ }
+ 
+ 
+diff --git a/nginx/src/os/unix/ngx_readv_chain.c b/nginx/src/os/unix/ngx_readv_chain.c
+index 454cfdc..098b524 100644
+--- a/nginx/src/os/unix/ngx_readv_chain.c
++++ b/nginx/src/os/unix/ngx_readv_chain.c
+@@ -118,7 +118,7 @@ ngx_readv_chain(ngx_connection_t *c, ngx_chain_t *chain, off_t limit)
+                    "readv: %ui, last:%uz", vec.nelts, iov->iov_len);
+ 
+     do {
+-        n = readv(c->fd, (struct iovec *) vec.elts, vec.nelts);
++        n = ngxvcl_readv(c->fd, (struct iovec *) vec.elts, vec.nelts);
+ 
+         if (n == 0) {
+             rev->ready = 0;
+diff --git a/nginx/src/os/unix/ngx_recv.c b/nginx/src/os/unix/ngx_recv.c
+index c85fd45..9aaa809 100644
+--- a/nginx/src/os/unix/ngx_recv.c
++++ b/nginx/src/os/unix/ngx_recv.c
+@@ -66,7 +66,7 @@ ngx_unix_recv(ngx_connection_t *c, u_char *buf, size_t size)
+ #endif
+ 
+     do {
+-        n = recv(c->fd, buf, size, 0);
++        n = ngxvcl_recv(c->fd, buf, size, 0);
+ 
+         ngx_log_debug3(NGX_LOG_DEBUG_EVENT, c->log, 0,
+                        "recv: fd:%d %z of %uz", c->fd, n, size);
+diff --git a/nginx/src/os/unix/ngx_send.c b/nginx/src/os/unix/ngx_send.c
+index 61ea202..5b91df6 100644
+--- a/nginx/src/os/unix/ngx_send.c
++++ b/nginx/src/os/unix/ngx_send.c
+@@ -31,7 +31,7 @@ ngx_unix_send(ngx_connection_t *c, u_char *buf, size_t size)
+ #endif
+ 
+     for ( ;; ) {
+-        n = send(c->fd, buf, size, 0);
++        n = ngxvcl_send(c->fd, buf, size, 0);
+ 
+         ngx_log_debug3(NGX_LOG_DEBUG_EVENT, c->log, 0,
+                        "send: fd:%d %z of %uz", c->fd, n, size);
+diff --git a/nginx/src/os/unix/ngx_socket.c b/nginx/src/os/unix/ngx_socket.c
+index 3978f65..b3d5fe6 100644
+--- a/nginx/src/os/unix/ngx_socket.c
++++ b/nginx/src/os/unix/ngx_socket.c
+@@ -30,7 +30,7 @@ ngx_nonblocking(ngx_socket_t s)
+ 
+     nb = 1;
+ 
+-    return ioctl(s, FIONBIO, &nb);
++    return ngxvcl_kvfd_ioctl(s, FIONBIO, &nb);
+ }
+ 
+ 
+@@ -41,7 +41,7 @@ ngx_blocking(ngx_socket_t s)
+ 
+     nb = 0;
+ 
+-    return ioctl(s, FIONBIO, &nb);
++    return ngxvcl_kvfd_ioctl(s, FIONBIO, &nb);
+ }
+ 
+ #endif
+@@ -56,7 +56,7 @@ ngx_tcp_nopush(ngx_socket_t s)
+ 
+     tcp_nopush = 1;
+ 
+-    return setsockopt(s, IPPROTO_TCP, TCP_NOPUSH,
++    return ngxvcl_kvfd_setsockopt(s, IPPROTO_TCP, TCP_NOPUSH,
+                       (const void *) &tcp_nopush, sizeof(int));
+ }
+ 
+@@ -68,7 +68,7 @@ ngx_tcp_push(ngx_socket_t s)
+ 
+     tcp_nopush = 0;
+ 
+-    return setsockopt(s, IPPROTO_TCP, TCP_NOPUSH,
++    return ngxvcl_kvfd_setsockopt(s, IPPROTO_TCP, TCP_NOPUSH,
+                       (const void *) &tcp_nopush, sizeof(int));
+ }
+ 
+@@ -82,7 +82,7 @@ ngx_tcp_nopush(ngx_socket_t s)
+ 
+     cork = 1;
+ 
+-    return setsockopt(s, IPPROTO_TCP, TCP_CORK,
++    return ngxvcl_kvfd_setsockopt(s, IPPROTO_TCP, TCP_CORK,
+                       (const void *) &cork, sizeof(int));
+ }
+ 
+@@ -94,7 +94,7 @@ ngx_tcp_push(ngx_socket_t s)
+ 
+     cork = 0;
+ 
+-    return setsockopt(s, IPPROTO_TCP, TCP_CORK,
++    return ngxvcl_kvfd_setsockopt(s, IPPROTO_TCP, TCP_CORK,
+                       (const void *) &cork, sizeof(int));
+ }
+ 
+diff --git a/nginx/src/os/unix/ngx_socket.h b/nginx/src/os/unix/ngx_socket.h
+index fcc5153..bcdde38 100644
+--- a/nginx/src/os/unix/ngx_socket.h
++++ b/nginx/src/os/unix/ngx_socket.h
+@@ -16,7 +16,7 @@
+ 
+ typedef int  ngx_socket_t;
+ 
+-#define ngx_socket          socket
++#define ngx_socket          ngxvcl_socket
+ #define ngx_socket_n        "socket()"
+ 
+ 
+@@ -30,10 +30,10 @@ int ngx_blocking(ngx_socket_t s);
+ 
+ #else
+ 
+-#define ngx_nonblocking(s)  fcntl(s, F_SETFL, fcntl(s, F_GETFL) | O_NONBLOCK)
++#define ngx_nonblocking(s)  ngxvcl_kvfd_fcntl(s, F_SETFL, fcntl(s, F_GETFL) | O_NONBLOCK)
+ #define ngx_nonblocking_n   "fcntl(O_NONBLOCK)"
+ 
+-#define ngx_blocking(s)     fcntl(s, F_SETFL, fcntl(s, F_GETFL) & ~O_NONBLOCK)
++#define ngx_blocking(s)     ngxvcl_kvfd_fcntl(s, F_SETFL, fcntl(s, F_GETFL) & ~O_NONBLOCK)
+ #define ngx_blocking_n      "fcntl(!O_NONBLOCK)"
+ 
+ #endif
+@@ -54,10 +54,10 @@ int ngx_tcp_push(ngx_socket_t s);
+ #endif
+ 
+ 
+-#define ngx_shutdown_socket    shutdown
++#define ngx_shutdown_socket    ngxvcl_shutdown
+ #define ngx_shutdown_socket_n  "shutdown()"
+ 
+-#define ngx_close_socket    close
++#define ngx_close_socket    ngxvcl_close
+ #define ngx_close_socket_n  "close() socket"
+ 
+ 
+diff --git a/nginx/src/os/unix/ngx_udp_recv.c b/nginx/src/os/unix/ngx_udp_recv.c
+index 6d544c2..ced9261 100644
+--- a/nginx/src/os/unix/ngx_udp_recv.c
++++ b/nginx/src/os/unix/ngx_udp_recv.c
+@@ -20,7 +20,7 @@ ngx_udp_unix_recv(ngx_connection_t *c, u_char *buf, size_t size)
+     rev = c->read;
+ 
+     do {
+-        n = recv(c->fd, buf, size, 0);
++        n = ngxvcl_recv(c->fd, buf, size, 0);
+ 
+         ngx_log_debug3(NGX_LOG_DEBUG_EVENT, c->log, 0,
+                        "recv: fd:%d %z of %uz", c->fd, n, size);
+diff --git a/nginx/src/os/unix/ngx_udp_send.c b/nginx/src/os/unix/ngx_udp_send.c
+index aabbc8e..ad1af9d 100644
+--- a/nginx/src/os/unix/ngx_udp_send.c
++++ b/nginx/src/os/unix/ngx_udp_send.c
+@@ -20,7 +20,7 @@ ngx_udp_unix_send(ngx_connection_t *c, u_char *buf, size_t size)
+     wev = c->write;
+ 
+     for ( ;; ) {
+-        n = sendto(c->fd, buf, size, 0, c->sockaddr, c->socklen);
++        n = ngxvcl_sendto(c->fd, buf, size, 0, c->sockaddr, c->socklen);
+ 
+         ngx_log_debug4(NGX_LOG_DEBUG_EVENT, c->log, 0,
+                        "sendto: fd:%d %z of %uz to \"%V\"",
+diff --git a/nginx/src/os/unix/ngx_udp_sendmsg_chain.c b/nginx/src/os/unix/ngx_udp_sendmsg_chain.c
+index 5399c79..7a04f0d 100644
+--- a/nginx/src/os/unix/ngx_udp_sendmsg_chain.c
++++ b/nginx/src/os/unix/ngx_udp_sendmsg_chain.c
+@@ -305,7 +305,7 @@ ngx_sendmsg(ngx_connection_t *c, ngx_iovec_t *vec)
+ 
+ eintr:
+ 
+-    n = sendmsg(c->fd, &msg, 0);
++    n = ngxvcl_sendmsg(c->fd, &msg, 0);
+ 
+     ngx_log_debug2(NGX_LOG_DEBUG_EVENT, c->log, 0,
+                    "sendmsg: %z of %uz", n, vec->size);
+diff --git a/nginx/src/os/unix/ngx_writev_chain.c b/nginx/src/os/unix/ngx_writev_chain.c
+index e38a3aa..9edc838 100644
+--- a/nginx/src/os/unix/ngx_writev_chain.c
++++ b/nginx/src/os/unix/ngx_writev_chain.c
+@@ -186,7 +186,7 @@ ngx_writev(ngx_connection_t *c, ngx_iovec_t *vec)
+ 
+ eintr:
+ 
+-    n = writev(c->fd, vec->iovs, vec->count);
++    n = ngxvcl_writev(c->fd, vec->iovs, vec->count);
+ 
+     ngx_log_debug2(NGX_LOG_DEBUG_EVENT, c->log, 0,
+                    "writev: %z of %uz", n, vec->size);
+diff --git a/nginx/src/stream/ngx_stream_handler.c b/nginx/src/stream/ngx_stream_handler.c
+index 669b6a1..105b9f5 100644
+--- a/nginx/src/stream/ngx_stream_handler.c
++++ b/nginx/src/stream/ngx_stream_handler.c
+@@ -225,7 +225,7 @@ ngx_stream_proxy_protocol_handler(ngx_event_t *rev)
+         return;
+     }
+ 
+-    n = recv(c->fd, (char *) buf, sizeof(buf), MSG_PEEK);
++    n = ngxvcl_recv(c->fd, (char *) buf, sizeof(buf), MSG_PEEK);
+ 
+     err = ngx_socket_errno;
+ 
+diff --git a/nginx/src/stream/ngx_stream_proxy_module.c b/nginx/src/stream/ngx_stream_proxy_module.c
+index 30572cd..f911135 100644
+--- a/nginx/src/stream/ngx_stream_proxy_module.c
++++ b/nginx/src/stream/ngx_stream_proxy_module.c
+@@ -1427,7 +1427,7 @@ ngx_stream_proxy_test_connect(ngx_connection_t *c)
+          * Solaris returns -1 and sets errno
+          */
+ 
+-        if (getsockopt(c->fd, SOL_SOCKET, SO_ERROR, (void *) &err, &len)
++        if (ngxvcl_kvfd_getsockopt(c->fd, SOL_SOCKET, SO_ERROR, (void *) &err, &len)
+             == -1)
+         {
+             err = ngx_socket_errno;
+-- 
+2.17.1
+
