@@ -7,8 +7,6 @@ to integrate VPP host stack directly with NGINX code change.
 # 2 Repository Layout
 **configs**: configuration files for VPP, NGINX and VCL
 
-**nginx**: NGINX/VCL code library based on version 1.14.2
-
 **nginx_patches**: VCL patches for NGINX
 
 **vpp_patches**: lock-free LDP and pinned-VPP patches
