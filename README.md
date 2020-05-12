@@ -3,6 +3,9 @@ This repository is to provide an optimized NGINX based on VPP host stack.
 We provide two ways of VPP host stack integration, i.e. LDP and VCL.
 LDP is basically un-modified NGINX with VPP via LD_PRELOAD, while VCL NGINX is
 to integrate VPP host stack directly with NGINX code change.
+This repository provides the initial nginx build and openssl3.0.0 build, as well
+as the integration of two VPP host stacks, namely the LDP and VCL VPP and nginx
+builds, and generates the installation package to the specified location.
 
 # 2 Repository Layout
 **configs**: configuration files for VPP, NGINX and VCL
@@ -11,7 +14,42 @@ to integrate VPP host stack directly with NGINX code change.
 
 **vpp_patches**: lock-free LDP and pinned-VPP patches
 
+**patches**: openssl patches
+
+**ngxvcl_demo**: UI demo of ngxvcl performance test for Intel Network Thechnology Workshop 2019
+
+**scripts**: scripts for VPP, NGINX and client test
+
+**packages**: Makefiles for building and downloading
+
 # 3 Building on top of distinct patches
+
+You can choose to use the Makefile to build automatically, and there are some Makefile options for you.
+
+```bash
+git clone --recursive https://gerrit.fd.io/r/vsap
+
+Help
+$ make help
+
+Install software dependencies
+$ make dep
+
+Build vcl DEB package and store the DEB files in folder '/path/to/this/repo/deb-vcl'
+$ make deb-vcl
+
+Build vcl vpp and vcl nginx and store the vcl files in folder '/path/to/this/repo/_install/local'
+$ make build-vcl
+
+Build ldp DEB package and store the DEB files in folder '/path/to/this/repo/deb-ldp'
+$ make deb-ldp
+
+Build ldp vpp and ldp nginx and store the vcl files in folder '/path/to/this/repo/_install/local'
+$ make build-ldp
+
+Clean all packages
+$ make clean
+```
 
 ## 3.0 Basic patch
 
@@ -68,6 +106,7 @@ $ sudo make install
 - Run VPP first
 
   - Refer to startup.conf provided in "configs" to start VPP. (learn how to use startup.conf in section 4.1.1)
+  - If you choose to use the Makefile to build automatically, the VPP is stored in '/path/to/this/repo/_install/local/vpp'
 
   ```bash
   ./vpp -c /path/to/startup.conf
@@ -76,6 +115,7 @@ $ sudo make install
   Start NGINX
 
   - refer to vcl.conf and nginx.conf provided under "configs"
+  - If you choose to use the Makefile to build automatically, the NGINX is stored in '/path/to/this/repo/_install/local/nginx'
 
   ```
   # export VCL_CONFIG=/path/to/vcl.conf
@@ -100,6 +140,8 @@ $ patch -p1 < /path/to/this/repo/vpp_patches/ldp/0001-LDP-remove-lock.patch
 $ make build && make build-release
 ```
 **Start NGINX**
+If you choose to use the Makefile to build automatically, the VPP is stored in '/path/to/this/repo/_install/local/vpp'
+If you choose to use the Makefile to build automatically, the NGINX is stored in '/path/to/this/repo/_install/local/nginx'
 
 ```bash
 $ export VCL_CONFIG=path/to/vcl.conf
