@@ -1,0 +1,225 @@
+{
+  "comments": [
+    {
+      "key": {
+        "uuid": "e3b148f8_6b3e0ef8",
+        "filename": "Makefile",
+        "patchSetId": 5
+      },
+      "lineNbr": 17,
+      "author": {
+        "id": 1269
+      },
+      "writtenOn": "2020-05-12T12:53:12Z",
+      "side": 1,
+      "message": "remove",
+      "revId": "02b261e4e4ff3efd16b01330e1bb5668021daec4",
+      "serverId": "6d2eb258-4fe2-443e-8a38-ca81da23d4c2",
+      "unresolved": true
+    },
+    {
+      "key": {
+        "uuid": "c473c2bc_cdd3e42a",
+        "filename": "Makefile",
+        "patchSetId": 5
+      },
+      "lineNbr": 18,
+      "author": {
+        "id": 1269
+      },
+      "writtenOn": "2020-05-12T12:53:12Z",
+      "side": 1,
+      "message": "please remove",
+      "revId": "02b261e4e4ff3efd16b01330e1bb5668021daec4",
+      "serverId": "6d2eb258-4fe2-443e-8a38-ca81da23d4c2",
+      "unresolved": true
+    },
+    {
+      "key": {
+        "uuid": "d674d60f_e7c0e08d",
+        "filename": "README.md",
+        "patchSetId": 5
+      },
+      "lineNbr": 6,
+      "author": {
+        "id": 1269
+      },
+      "writtenOn": "2020-05-12T12:53:12Z",
+      "side": 1,
+      "message": "remove initial",
+      "revId": "02b261e4e4ff3efd16b01330e1bb5668021daec4",
+      "serverId": "6d2eb258-4fe2-443e-8a38-ca81da23d4c2",
+      "unresolved": true
+    },
+    {
+      "key": {
+        "uuid": "99f58b59_c49943b6",
+        "filename": "README.md",
+        "patchSetId": 5
+      },
+      "lineNbr": 7,
+      "author": {
+        "id": 1269
+      },
+      "writtenOn": "2020-05-12T12:53:12Z",
+      "side": 1,
+      "message": "remove two",
+      "revId": "02b261e4e4ff3efd16b01330e1bb5668021daec4",
+      "serverId": "6d2eb258-4fe2-443e-8a38-ca81da23d4c2",
+      "unresolved": true
+    },
+    {
+      "key": {
+        "uuid": "0c8c29fc_a752da3b",
+        "filename": "README.md",
+        "patchSetId": 5
+      },
+      "lineNbr": 8,
+      "author": {
+        "id": 1269
+      },
+      "writtenOn": "2020-05-12T12:53:12Z",
+      "side": 1,
+      "message": "add deb",
+      "revId": "02b261e4e4ff3efd16b01330e1bb5668021daec4",
+      "serverId": "6d2eb258-4fe2-443e-8a38-ca81da23d4c2",
+      "unresolved": true
+    },
+    {
+      "key": {
+        "uuid": "3def8a17_9a4d7b49",
+        "filename": "README.md",
+        "patchSetId": 5
+      },
+      "lineNbr": 17,
+      "author": {
+        "id": 1269
+      },
+      "writtenOn": "2020-05-12T12:53:12Z",
+      "side": 1,
+      "message": "why not use \"openssl_patches\"?",
+      "revId": "02b261e4e4ff3efd16b01330e1bb5668021daec4",
+      "serverId": "6d2eb258-4fe2-443e-8a38-ca81da23d4c2",
+      "unresolved": true
+    },
+    {
+      "key": {
+        "uuid": "6b96d72a_37e6d26a",
+        "filename": "README.md",
+        "patchSetId": 5
+      },
+      "lineNbr": 19,
+      "author": {
+        "id": 1269
+      },
+      "writtenOn": "2020-05-12T12:53:12Z",
+      "side": 1,
+      "message": "remove demo",
+      "revId": "02b261e4e4ff3efd16b01330e1bb5668021daec4",
+      "serverId": "6d2eb258-4fe2-443e-8a38-ca81da23d4c2",
+      "unresolved": true
+    },
+    {
+      "key": {
+        "uuid": "62318053_dee8989c",
+        "filename": "README.md",
+        "patchSetId": 5
+      },
+      "lineNbr": 30,
+      "author": {
+        "id": 1269
+      },
+      "writtenOn": "2020-05-12T12:53:12Z",
+      "side": 1,
+      "message": "please don\u0027t use \"recursive\", but use \"submodule init/update\"",
+      "revId": "02b261e4e4ff3efd16b01330e1bb5668021daec4",
+      "serverId": "6d2eb258-4fe2-443e-8a38-ca81da23d4c2",
+      "unresolved": true
+    },
+    {
+      "key": {
+        "uuid": "ed1f1595_6a450c59",
+        "filename": "packages/openssl-dl.mk",
+        "patchSetId": 5
+      },
+      "lineNbr": 19,
+      "author": {
+        "id": 1269
+      },
+      "writtenOn": "2020-05-12T12:53:12Z",
+      "side": 1,
+      "message": "could we merge openssl download and openssl together? same as Nginx and nginx-dl",
+      "revId": "02b261e4e4ff3efd16b01330e1bb5668021daec4",
+      "serverId": "6d2eb258-4fe2-443e-8a38-ca81da23d4c2",
+      "unresolved": true
+    },
+    {
+      "key": {
+        "uuid": "3d8c19f9_c675e0c1",
+        "filename": "pre-install",
+        "patchSetId": 5
+      },
+      "lineNbr": 7,
+      "author": {
+        "id": 1269
+      },
+      "writtenOn": "2020-05-12T12:53:12Z",
+      "side": 1,
+      "message": "not sure if this file is needed. If you don\u0027t kill Nginx, what will happen?",
+      "revId": "02b261e4e4ff3efd16b01330e1bb5668021daec4",
+      "serverId": "6d2eb258-4fe2-443e-8a38-ca81da23d4c2",
+      "unresolved": true
+    },
+    {
+      "key": {
+        "uuid": "35625e3b_57e86fee",
+        "filename": "vpp_patches/common/3.0.0.patch",
+        "patchSetId": 5
+      },
+      "lineNbr": 95,
+      "author": {
+        "id": 1269
+      },
+      "writtenOn": "2020-05-12T12:53:12Z",
+      "side": 1,
+      "message": "looks we should delete this line, instead of \"//\".",
+      "revId": "02b261e4e4ff3efd16b01330e1bb5668021daec4",
+      "serverId": "6d2eb258-4fe2-443e-8a38-ca81da23d4c2",
+      "unresolved": true
+    },
+    {
+      "key": {
+        "uuid": "8f617eb3_8a740d98",
+        "filename": "vpp_patches/ldp/0001-LDP-remove-lock-April-22.patch",
+        "patchSetId": 5
+      },
+      "lineNbr": 2,
+      "author": {
+        "id": 1269
+      },
+      "writtenOn": "2020-05-12T12:53:12Z",
+      "side": 1,
+      "message": "please don\u0027t use date in the patch",
+      "revId": "02b261e4e4ff3efd16b01330e1bb5668021daec4",
+      "serverId": "6d2eb258-4fe2-443e-8a38-ca81da23d4c2",
+      "unresolved": true
+    },
+    {
+      "key": {
+        "uuid": "e3d90aae_35ff4f82",
+        "filename": "vpp_patches/ldp/0001-LDP-remove-lock-April-22.patch",
+        "patchSetId": 5
+      },
+      "lineNbr": 4,
+      "author": {
+        "id": 1269
+      },
+      "writtenOn": "2020-05-12T12:53:12Z",
+      "side": 1,
+      "message": "besides latest VPP patch, how could you build VPP 20.01?",
+      "revId": "02b261e4e4ff3efd16b01330e1bb5668021daec4",
+      "serverId": "6d2eb258-4fe2-443e-8a38-ca81da23d4c2",
+      "unresolved": true
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "key": {
+        "uuid": "676b180e_3b829f23",
+        "filename": "vpp_patches/ldp/0001-LDP-remove-lock.patch",
+        "patchSetId": 5
+      },
+      "lineNbr": 1,
+      "author": {
+        "id": 1269
+      },
+      "writtenOn": "2020-05-12T12:53:12Z",
+      "side": 0,
+      "message": "why this file is deleted?",
+      "revId": "1e75471aed27194fb8ee0b2c07c64fb8a8f55279",
+      "serverId": "6d2eb258-4fe2-443e-8a38-ca81da23d4c2",
+      "unresolved": true
+    }
+  ]
+}
