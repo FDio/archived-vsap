@@ -1,0 +1,27 @@
+From 8b808809f3608470f0df77f73aed784d2b160a9e Mon Sep 17 00:00:00 2001
+From: "xiaolongx.jiang" <xiaolongx.jiang@intel.com>
+Date: Sun, 22 Mar 2020 12:23:44 +0000
+Subject: [PATCH] src-pkg-debian-rules.in
+
+---
+ src/pkg/debian/rules.in | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/src/pkg/debian/rules.in b/src/pkg/debian/rules.in
+index ceef46a29..83d6f66fe 100755
+--- a/src/pkg/debian/rules.in
++++ b/src/pkg/debian/rules.in
+@@ -27,6 +27,10 @@ override_dh_strip:
+ 
+ DEB_HOST_MULTIARCH = $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
+ 
++override_dh_shlibdeps:
++	dh_shlibdeps --dpkg-shlibdeps-params=--ignore-missing-info
++
++
+ override_dh_install:
+ 	@for c in @VPP_COMPONENTS@; do \
+ 	  @CMAKE_COMMAND@ \
+-- 
+2.17.1
+

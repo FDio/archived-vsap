@@ -1,0 +1,45 @@
+From b20dfd9f921be04b03899959bdf3feba5376c4c3 Mon Sep 17 00:00:00 2001
+From: "xiaolongx.jiang" <xiaolongx.jiang@intel.com>
+Date: Wed, 13 May 2020 06:22:06 +0000
+Subject: [PATCH] quick 0.0.9
+
+Signed-off-by: xiaolongx.jiang <xiaolongx.jiang@intel.com>
+---
+ .../0001-picotls-openssl-3.0.0.patch          | 25 +++++++++++++++++++
+ 1 file changed, 25 insertions(+)
+ create mode 100644 build/external/patches/quicly_0.0.9-vpp/0001-picotls-openssl-3.0.0.patch
+
+diff --git a/build/external/patches/quicly_0.0.9-vpp/0001-picotls-openssl-3.0.0.patch b/build/external/patches/quicly_0.0.9-vpp/0001-picotls-openssl-3.0.0.patch
+new file mode 100644
+index 000000000..d998fb852
+--- /dev/null
++++ b/build/external/patches/quicly_0.0.9-vpp/0001-picotls-openssl-3.0.0.patch
+@@ -0,0 +1,25 @@
++From e99a421de5a66bd4af275c1ff77c2a3764febdf4 Mon Sep 17 00:00:00 2001
++From: "xiaolongx.jiang" <xiaolongx.jiang@intel.com>
++Date: Fri, 8 May 2020 08:25:12 +0000
++Subject: [PATCH] picotls: openssl-3.0.0
++
++Signed-off-by: xiaolongx.jiang <xiaolongx.jiang@intel.com>
++---
++ .../deps/picotls/CMakeLists.txt              | 1 +
++ 1 file changed, 1 insertion(+)
++
++diff --git a/deps/picotls/CMakeLists.txt b/deps/picotls/CMakeLists.txt
++index 14411e2ec..4e230c701 100644
++--- a/deps/picotls/CMakeLists.txt
+++++ b/deps/picotls/CMakeLists.txt
++@@ -95,6 +95,7 @@ ADD_EXECUTABLE(test-minicrypto.t
++ SET(TEST_EXES test-minicrypto.t)
++ 
++ FIND_PACKAGE(OpenSSL)
+++set(OPENSSL_VERSION 3.0.0)
++ IF (OPENSSL_FOUND AND NOT (OPENSSL_VERSION VERSION_LESS "1.0.1"))
++     MESSAGE(STATUS "  Enabling OpenSSL support")
++     INCLUDE_DIRECTORIES(${OPENSSL_INCLUDE_DIR})
++-- 
++2.17.1
++
+-- 
+2.17.1
+
