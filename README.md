@@ -1,8 +1,8 @@
 # 1 Introduction
 This repository is to provide an optimized NGINX based on VPP host stack.
-We provide two ways of VPP host stack integration, i.e. LDP and VCL.
-LDP is basically un-modified NGINX with VPP via LD_PRELOAD, while VCL NGINX is
-to integrate VPP host stack directly with NGINX code change.
+We provide two ways of VPP host stack integration, that is, the LDP and the VCL.
+LDP is basically un-modified NGINX with VPP via LD_PRELOAD, while VCL NGINX is to integrate VPP host stack directly with NGINX code change.
+This repository provides the initial nginx build and openssl3.0.0 build, as well as the integration of two VPP host stacks, namely the LDP and VCL VPP and nginx builds, and generates the installation package to the specified location.
 
 # 2 Repository Layout
 **configs**: configuration files for VPP, NGINX and VCL
@@ -11,14 +11,50 @@ to integrate VPP host stack directly with NGINX code change.
 
 **vpp_patches**: lock-free LDP and pinned-VPP patches
 
+**ngxvcl_demo**: UI demo of ngxvcl performance test for Intel Network Thechnology Workshop 2019
+
+**scripts**: scripts for VPP, NGINX and client test
+
+**packages**: Makefiles for building and downloading
+
+**patches**: openssl patches
+
 # 3 Building on top of distinct patches
+
+You can choose to use the Makefile to build automatically, and there are some Makefile options for you.
+
+```bash
+git clone --recursive https://gerrit.fd.io/r/vsap
+
+Help
+$ make help
+
+Install software dependencies
+$ make dep
+
+Build vcl DEB package and store the DEB files in folder '/path/to/this/repo/deb-vcl'
+$ make deb-vcl
+
+Build vcl vpp and vcl nginx and store the vcl files in folder '/path/to/this/repo/_install/local'
+$ make build-vcl
+
+Build ldp DEB package and store the DEB files in folder '/path/to/this/repo/deb-ldp'
+$ make deb-ldp
+
+Build ldp vpp and ldp nginx and store the vcl files in folder '/path/to/this/repo/_install/local'
+$ make build-ldp
+
+Clean all packages
+$ make clean
+```
 
 ## 3.0 Basic patch
 
 ### 3.0.1 Application Worker Partition
 **Functionality**
 
-For both VCL and LDP, it requires to add a patch to app worker optimization.
+For both VCL and LDP, it requires to add a patch first to app worker optimization.
+The upstream effort is ongoing, and if it is got accepted, then this patch is not necessary.
 
 **Instructions**
 
@@ -68,6 +104,7 @@ $ sudo make install
 - Run VPP first
 
   - Refer to startup.conf provided in "configs" to start VPP. (learn how to use startup.conf in section 4.1.1)
+  - If you choose to use the Makefile to build automatically, the VPP is stored in '/path/to/this/repo/_install/local/vpp'
 
   ```bash
   ./vpp -c /path/to/startup.conf
@@ -76,6 +113,7 @@ $ sudo make install
   Start NGINX
 
   - refer to vcl.conf and nginx.conf provided under "configs"
+  - If you choose to use the Makefile to build automatically, the NGINX is stored in '/path/to/this/repo/_install/local/nginx'
 
   ```
   # export VCL_CONFIG=/path/to/vcl.conf
@@ -88,7 +126,8 @@ $ sudo make install
 ### 3.2.1 Removing VLS Locks
 **Functionality**
 
-This patch removes VLS session locks for saving approximately 100% CPU cycles one core of applications, especially for the application which is CPU-intensive.
+This patch removes VLS session locks for saving approximately 100% CPU cycles one core
+of applications, especially for the application who is CPU-intensive.
 
 **Instructions**
 
@@ -100,6 +139,8 @@ $ patch -p1 < /path/to/this/repo/vpp_patches/ldp/0001-LDP-remove-lock.patch
 $ make build && make build-release
 ```
 **Start NGINX**
+If you choose to use the Makefile to build automatically, the VPP is stored in '/path/to/this/repo/_install/local/vpp'
+If you choose to use the Makefile to build automatically, the NGINX is stored in '/path/to/this/repo/_install/local/nginx'
 
 ```bash
 $ export VCL_CONFIG=path/to/vcl.conf
@@ -150,3 +191,11 @@ corelist-workers 1-4    ##set the four vpp worker threads on core 1-4,
 num-rx-queues 4         ##Assign each VPP worker one rx queue.
 ```
 
+**Set core affinity for NGINX processes**
+
+In order to make all nginx workers run on NUMA node as same as VPP, we provide one way using tool named taskset.
+And the relative commands are followed, you may need to change the number of nginx worker processes, which is ***for i in `seq 1 4`; do***, the `4` should be same as the number of started NGINX workers.
+
+### 4.1.3 Performance
+
+Our performance test is based on "wrk", and some scripts are provided in directory of "scripts". The script is  for internal usage only now and some code is hard-coded.
