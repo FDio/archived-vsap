@@ -1,0 +1,9 @@
+#!/bin/bash
+set -x
+
+# kill nginx.
+retval=$(ps -A | grep nginx | grep -v grep | awk '{print $1}' | wc -l)
+if [[ $retval -ne 0 ]]; then
+    ps -A | grep nginx | grep -v grep | awk '{print $1}' | xargs kill -9
+fi
+
