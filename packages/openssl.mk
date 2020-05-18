@@ -11,8 +11,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-openssl_version            := 3.0.0-alpha1
-openssl_patch_dir          := $(CURDIR)/openssl_patches
+openssl_version            := 3.0.0-alpha2
 openssl_install_dir        := $(I)/local/ssl
 openssl_deb_inst_dir       := /usr/local/ssl
 openssl_pkg_deb_name       := openssl3
@@ -20,11 +19,12 @@ openssl_pkg_deb_dir        := $(I)/openssl-deb
 openssl_rpm_inst_dir       := /usr/local/ssl
 openssl_pkg_rpm_name       := openssl3
 openssl_pkg_rpm_dir        := $(I)/openssl-rpm
-openssl_tarball            := openssl-$(openssl_version).tar.gz
-openssl_tarball_md5sum     := d9326bd068a0382193ab0cb1c6e4685b
 openssl_tarball_strip_dirs := 1
-openssl_url                := https://www.openssl.org/source/$(openssl_tarball)
 openssl_desc               := "openssl3.0.0"
+
+define  openssl_patch_cmds
+	@true
+endef
 
 define  openssl_config_cmds
 	@cd $(openssl_build_dir) && \
