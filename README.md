@@ -48,7 +48,13 @@ $ make deb-ldp
 Build ldp vpp and ldp nginx and store the vcl files in folder '/path/to/this/repo/_install/local'
 $ make build-ldp
 
-Clean all packages
+Clean up build vcl environment, remove _build/.*vcl*. for example: rm _build/.vpp_vcl.build.ok and so on
+$ make clean-vcl
+
+Clean up build ldp environment, remove _build/.*vcl*. for example: rm _build/.vpp_ldp.build.ok and so on
+$ make clean-ldp
+
+Clean up build environment
 $ make clean
 ```
 

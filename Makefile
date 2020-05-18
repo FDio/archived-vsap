@@ -68,11 +68,11 @@ clean:
 
 .PHONY: clean-vcl
 clean-vcl:
-	@rm -f $(B)/.vcl*
+	@rm -f $(B)/.*vcl*
 
 .PHONY: clean-ldp
 clean-ldp:
-	@rm -f $(B)/.ldp*
+	@rm -f $(B)/.*ldp*
 
 $(BR)/.deps.ok:
 	make dep
