@@ -1,0 +1,38 @@
+{
+  "comments": [
+    {
+      "key": {
+        "uuid": "0c2640e0_0872dd7d",
+        "filename": "Makefile",
+        "patchSetId": 1
+      },
+      "lineNbr": 71,
+      "author": {
+        "id": 1269
+      },
+      "writtenOn": "2020-05-18T07:33:31Z",
+      "side": 1,
+      "message": "what files should be deleted? could you please give some example?",
+      "revId": "e5fac226873ae75bb8cdd95d90eb4a674d8d25d1",
+      "serverId": "6d2eb258-4fe2-443e-8a38-ca81da23d4c2",
+      "unresolved": true
+    },
+    {
+      "key": {
+        "uuid": "56a1dd2c_a580abce",
+        "filename": "packages/openssl.mk",
+        "patchSetId": 1
+      },
+      "lineNbr": 26,
+      "author": {
+        "id": 1269
+      },
+      "writtenOn": "2020-05-18T07:33:31Z",
+      "side": 1,
+      "message": "please also remove the patch from the system",
+      "revId": "e5fac226873ae75bb8cdd95d90eb4a674d8d25d1",
+      "serverId": "6d2eb258-4fe2-443e-8a38-ca81da23d4c2",
+      "unresolved": true
+    }
+  ]
+}
