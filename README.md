@@ -39,13 +39,17 @@ $ make dep
 Build vcl DEB package and store the DEB files in folder '/path/to/this/repo/deb-vcl'
 $ make deb-vcl
 
-Build vcl vpp and vcl nginx and store the vcl files in folder '/path/to/this/repo/_install/local'
+Build vcl vpp and vcl nginx
+Nginx and Openssl are in folder '/path/to/this/repo/_install/local'
+Vpp is in '/path/to/this/repo/vpp'
 $ make build-vcl
 
 Build ldp DEB package and store the DEB files in folder '/path/to/this/repo/deb-ldp'
 $ make deb-ldp
 
-Build ldp vpp and ldp nginx and store the vcl files in folder '/path/to/this/repo/_install/local'
+Build ldp vpp and ldp nginx
+Nginx and Openssl are in folder '/path/to/this/repo/_install/local'
+Vpp is in '/path/to/this/repo/vpp'
 $ make build-ldp
 
 Clean up build vcl environment, remove _build/.*vcl*. for example: rm _build/.vpp_vcl.build.ok and so on

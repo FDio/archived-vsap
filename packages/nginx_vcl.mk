@@ -67,8 +67,8 @@ define nginx_vcl_pkg_deb_cmds
 endef
 
 define  nginx_vcl_pkg_deb_cp_cmds
-	@echo "--- copy deb to $(CURDIR)/deb-vcl ---"
-	@cp $(nginx_vcl_pkg_deb_dir)/*.deb deb-vcl/.
+	@echo "--- move deb to $(CURDIR)/deb-vcl ---"
+	@mv $(nginx_vcl_pkg_deb_dir)/*.deb deb-vcl/.
 endef
 
 $(eval $(call package,nginx_vcl))

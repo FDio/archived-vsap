@@ -27,7 +27,7 @@ define  vpp_ldp_patch_cmds
 	@echo "--- ldp vpp patching ---"
 	@cd $(vpp_ldp_src_dir); \
 		git reset --hard; git clean -f; git checkout master; \
-		if [ ! -z $(_VPP_VER) ] ; then \
+		if [ ! -z $(_VPP_VER) -a $(_VPP_VER) != "master" ] ; then \
 			echo "--- vpp version: $(_VPP_VER) ---"; \
 			git checkout remotes/origin/stable/$(_VPP_VER); \
 			git reset --hard; git clean -f; \
@@ -36,7 +36,7 @@ define  vpp_ldp_patch_cmds
 		echo Applying patch: $$(basename $$f) ; \
 		patch -p1 -d $(vpp_ldp_src_dir) < $$f ; \
 	done
-	@if [ -z $(_VPP_VER) ]; then \
+	@if [ -z $(_VPP_VER) -o $(_VPP_VER) = "master" ]; then \
 		echo "--- vpp master ---"; \
 		for f in $(CURDIR)/vpp_patches/common/master/*.patch ; do \
 			echo Applying patch: $$(basename $$f) ; \
@@ -78,12 +78,7 @@ define  vpp_ldp_build_cmds
 		$(MAKE) wipe-release; \
 		rm -f $(vpp_ldp_pkg_deb_dir)/*.deb; \
 		$(MAKE) build-release; \
-		$(MAKE) pkg-deb; \
-		echo "--- Please wait for the final completion ..."; \
-		cd ..; rm -rf $(vcl_vpp_install_dir)/vpp; \
-		cp -rf vpp $(vcl_vpp_install_dir); \
-		echo "--- Completed! ---"
-
+		$(MAKE) pkg-deb;
 endef
 
 define  vpp_ldp_install_cmds
@@ -95,11 +90,12 @@ define  vpp_ldp_pkg_deb_cmds
 endef
 
 define  vpp_ldp_pkg_deb_cp_cmds
-	@echo "--- copy deb to $(CURDIR)/deb-ldp ---"
+	@echo "--- move deb to $(CURDIR)/deb-ldp ---"
 	@mkdir -p deb-ldp
 	@ls deb-ldp/ ;rm -f deb-ldp/*
-	@cp $(I)/openssl-deb/*.deb deb-ldp/.
-	@cp $(vpp_ldp_pkg_deb_dir)/*.deb deb-ldp/.
+	@mv $(I)/openssl-deb/*.deb deb-ldp/.
+	@rm $(B)/.openssl.pkg-deb.ok
+	@mv $(vpp_ldp_pkg_deb_dir)/*.deb deb-ldp/.
 endef
 
 $(eval $(call package,vpp_ldp))
