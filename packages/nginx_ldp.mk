@@ -62,8 +62,8 @@ define nginx_ldp_pkg_deb_cmds
 endef
 
 define  nginx_ldp_pkg_deb_cp_cmds
-	@echo "--- copy deb to $(CURDIR)/deb-ldp ---"
-	@cp $(nginx_ldp_pkg_deb_dir)/*.deb deb-ldp/.
+	@echo "--- move deb to $(CURDIR)/deb-ldp ---"
+	@mv $(nginx_ldp_pkg_deb_dir)/*.deb deb-ldp/.
 endef
 
 $(eval $(call package,nginx_ldp))

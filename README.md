@@ -39,14 +39,26 @@ $ make dep
 Build vcl DEB package and store the DEB files in folder '/path/to/this/repo/deb-vcl'
 $ make deb-vcl
 
-Build vcl vpp and vcl nginx and store the vcl files in folder '/path/to/this/repo/_install/local'
+Build vcl vpp and vcl nginx
+Nginx and Openssl are in folder '/path/to/this/repo/_install/local'
+Vpp is in '/path/to/this/repo/vpp'
 $ make build-vcl
 
 Build ldp DEB package and store the DEB files in folder '/path/to/this/repo/deb-ldp'
 $ make deb-ldp
 
-Build ldp vpp and ldp nginx and store the vcl files in folder '/path/to/this/repo/_install/local'
+Build ldp vpp and ldp nginx
+Nginx and Openssl are in folder '/path/to/this/repo/_install/local'
+Vpp is in '/path/to/this/repo/vpp'
 $ make build-ldp
+
+In addition,VPP can select master and 2001 branches.
+For example:
+$ make deb-vcl vpp=2001
+
+If you don't take the parameter, the default is master.
+For example:
+$ make deb-vcl
 
 Clean up build vcl environment, remove _build/.*vcl*. for example: rm _build/.vpp_vcl.build.ok and so on
 $ make clean-vcl
