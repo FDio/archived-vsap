@@ -78,12 +78,7 @@ define  vpp_ldp_build_cmds
 		$(MAKE) wipe-release; \
 		rm -f $(vpp_ldp_pkg_deb_dir)/*.deb; \
 		$(MAKE) build-release; \
-		$(MAKE) pkg-deb; \
-		echo "--- Please wait for the final completion ..."; \
-		cd ..; rm -rf $(vcl_vpp_install_dir)/vpp; \
-		cp -rf vpp $(vcl_vpp_install_dir); \
-		echo "--- Completed! ---"
-
+		$(MAKE) pkg-deb;
 endef
 
 define  vpp_ldp_install_cmds
@@ -95,11 +90,12 @@ define  vpp_ldp_pkg_deb_cmds
 endef
 
 define  vpp_ldp_pkg_deb_cp_cmds
-	@echo "--- copy deb to $(CURDIR)/deb-ldp ---"
+	@echo "--- move deb to $(CURDIR)/deb-ldp ---"
 	@mkdir -p deb-ldp
 	@ls deb-ldp/ ;rm -f deb-ldp/*
-	@cp $(I)/openssl-deb/*.deb deb-ldp/.
-	@cp $(vpp_ldp_pkg_deb_dir)/*.deb deb-ldp/.
+	@mv $(I)/openssl-deb/*.deb deb-ldp/.
+	@rm $(B)/.openssl.pkg-deb.ok
+	@mv $(vpp_ldp_pkg_deb_dir)/*.deb deb-ldp/.
 endef
 
 $(eval $(call package,vpp_ldp))

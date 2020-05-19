@@ -70,11 +70,7 @@ define  vpp_vcl_build_cmds
 		$(MAKE) wipe-release; \
 		rm -f $(vpp_vcl_pkg_deb_dir)/*.deb; \
 		$(MAKE) build-release; \
-		$(MAKE) pkg-deb; \
-		echo "--- Please wait for the final completion ..."; \
-		cd ..; rm -rf $(vpp_vcl_install_dir)/vpp; \
-		cp -rf vpp $(vpp_vcl_install_dir); \
-		echo "--- Completed! ---"
+		$(MAKE) pkg-deb;
 endef
 
 define  vpp_vcl_install_cmds
@@ -86,11 +82,12 @@ define  vpp_vcl_pkg_deb_cmds
 endef
 
 define  vpp_vcl_pkg_deb_cp_cmds
-	@echo "--- copy deb to $(CURDIR)/dev-vcl ---"
+	@echo "--- move deb to $(CURDIR)/dev-vcl ---"
 	@mkdir -p deb-vcl
 	@rm -f deb-vcl/*
-	@cp $(I)/openssl-deb/*.deb deb-vcl/.
-	@cp $(vpp_vcl_pkg_deb_dir)/*.deb deb-vcl/.
+	@mv $(I)/openssl-deb/*.deb deb-vcl/.
+	@rm $(B)/.openssl.pkg-deb.ok
+	@mv $(vpp_vcl_pkg_deb_dir)/*.deb deb-vcl/.
 endef
 
 $(eval $(call package,vpp_vcl))
