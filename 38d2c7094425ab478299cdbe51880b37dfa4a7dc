@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "key": {
+        "uuid": "e8a31d51_77fe8943",
+        "filename": "packages/vpp_ldp.mk",
+        "patchSetId": 1
+      },
+      "lineNbr": 84,
+      "author": {
+        "id": 1269
+      },
+      "writtenOn": "2020-05-21T07:04:15Z",
+      "side": 1,
+      "message": "I don\u0027t know why we should copy the whole VPP directory to the install dir.",
+      "revId": "38d2c7094425ab478299cdbe51880b37dfa4a7dc",
+      "serverId": "6d2eb258-4fe2-443e-8a38-ca81da23d4c2",
+      "unresolved": true
+    }
+  ]
+}
