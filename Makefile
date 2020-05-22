@@ -25,6 +25,7 @@ SHELL := /bin/bash
 export BR=$(CURDIR)
 
 DL_CACHE_DIR = $(CURDIR)/downloads
+vpp ?= master
 MAKE ?= make
 MAKE_ARGS ?= -j
 BUILD_DIR        ?= $(CURDIR)/_build
