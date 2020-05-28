@@ -13,7 +13,7 @@
 
 nginx_ldp_version            := 1.14.2
 nginx_ldp_src_dir            := $(B)/nginx_ldp
-nginx_ldp_install_dir        := $(I)/local/nginx
+nginx_ldp_install_dir        := /usr/local/nginx
 nginx_ldp_deb_inst_dir       := /usr/local/nginx
 nginx_ldp_pkg_deb_name       := nginx
 nginx_ldp_pkg_deb_dir        := $(I)/deb-ldp
