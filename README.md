@@ -60,6 +60,12 @@ If you don't take the parameter, the default is master.
 For example:
 $ make deb-vcl
 
+Verify that vcl starts properly
+$ make verify-vcl
+
+Verify that ldp starts properly
+$ make verify-ldp
+
 Clean up build vcl environment, remove _build/.*vcl*. for example: rm _build/.vpp_vcl.build.ok and so on
 $ make clean-vcl
 

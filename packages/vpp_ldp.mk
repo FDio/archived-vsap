@@ -17,6 +17,7 @@ vpp_ldp_install_dir        := $(I)/local
 vpp_ldp_pkg_deb_name       := vpp
 vpp_ldp_pkg_deb_dir        := $(CURDIR)/vpp/build-root
 vpp_ldp_desc               := "ldp vpp"
+openssl_install_dir        ?= /usr/local/ssl
 
 
 define  vpp_ldp_extract_cmds
@@ -27,16 +28,16 @@ define  vpp_ldp_patch_cmds
 	@echo "--- ldp vpp patching ---"
 	@cd $(vpp_ldp_src_dir); \
 		git reset --hard; git clean -f; git checkout master; \
-		if [ ! -z $(_VPP_VER) -a $(_VPP_VER) != "master" ] ; then \
+		if [ $(_VPP_VER) != "master" ] ; then \
 			echo "--- vpp version: $(_VPP_VER) ---"; \
-			git checkout remotes/origin/stable/$(_VPP_VER); \
+			git checkout stable/$(_VPP_VER); \
 			git reset --hard; git clean -f; \
 		fi
 	@for f in $(CURDIR)/vpp_patches/common/*.patch ; do \
 		echo Applying patch: $$(basename $$f) ; \
 		patch -p1 -d $(vpp_ldp_src_dir) < $$f ; \
 	done
-	@if [ -z $(_VPP_VER) -o $(_VPP_VER) = "master" ]; then \
+	@if [ $(_VPP_VER) = "2005" -o $(_VPP_VER) = "master" ]; then \
 		echo "--- vpp master ---"; \
 		for f in $(CURDIR)/vpp_patches/common/master/*.patch ; do \
 			echo Applying patch: $$(basename $$f) ; \
@@ -73,8 +74,8 @@ endef
 define  vpp_ldp_build_cmds
 	@cd $(vpp_ldp_src_dir); \
 	echo "---build : $(vpp_ldp_src_dir)"; \
-		export OPENSSL_ROOT_DIR=$(I)/local/ssl; \
-		export LD_LIBRARY_PATH=$(I)/local/ssl/lib; \
+		export OPENSSL_ROOT_DIR=$(openssl_install_dir); \
+		export LD_LIBRARY_PATH=$(openssl_install_dir)/lib; \
 		$(MAKE) wipe-release; \
 		rm -f $(vpp_ldp_pkg_deb_dir)/*.deb; \
 		$(MAKE) build-release; \

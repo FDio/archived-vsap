@@ -48,6 +48,8 @@ help:
 	@echo " build-vcl       - build vcl vpp and vcl nginx"
 	@echo " deb-ldp         - build ldp DEB package"
 	@echo " build-ldp       - build ldp vpp and ldp nginx"
+	@echo " verify-vcl      - verify vcl starts properly"
+	@echo " verify-ldp      - verify ldp starts properly"
 	@echo " clean           - clean up build environment."
 	@echo " clean-vcl       - clean up build vcl environment."
 	@echo " clean-ldp       - clean up build ldp environment."
@@ -85,12 +87,19 @@ build-vcl: $(BR)/.deps.ok openssl-dl nginx-dl openssl-build vpp_vcl-build nginx_
 .PHONY: build-ldp
 build-ldp: $(BR)/.deps.ok openssl-dl nginx-dl openssl-build vpp_ldp-build nginx_ldp-build
 
-
 .PHONY: deb-vcl
 deb-vcl: build-vcl openssl-deb vpp_vcl-deb nginx_vcl-deb
 
 .PHONY: deb-ldp
 deb-ldp: build-ldp openssl-deb vpp_ldp-deb nginx_ldp-deb
+
+.PHONY: verify-vcl
+verify-vcl: build-vcl
+	@./packages/verify.sh vcl
+
+.PHONY: verify-ldp
+verify-ldp: build-ldp
+	@./packages/verify.sh ldp
 
 .PHONY: dep
 dep:
