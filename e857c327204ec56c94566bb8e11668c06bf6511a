@@ -1,0 +1,55 @@
+{
+  "comments": [
+    {
+      "key": {
+        "uuid": "591771d9_3eb8a858",
+        "filename": "packages/nginx_ldp.mk",
+        "patchSetId": 2
+      },
+      "lineNbr": 16,
+      "author": {
+        "id": 1269
+      },
+      "writtenOn": "2020-06-08T07:32:43Z",
+      "side": 1,
+      "message": "This change is not related with your feature? why not use generic $(I) here?",
+      "revId": "e857c327204ec56c94566bb8e11668c06bf6511a",
+      "serverId": "6d2eb258-4fe2-443e-8a38-ca81da23d4c2",
+      "unresolved": true
+    },
+    {
+      "key": {
+        "uuid": "ae87df3c_0d781ce2",
+        "filename": "packages/nginx_vcl.mk",
+        "patchSetId": 2
+      },
+      "lineNbr": 18,
+      "author": {
+        "id": 1269
+      },
+      "writtenOn": "2020-06-08T07:32:43Z",
+      "side": 1,
+      "message": "same question like before?",
+      "revId": "e857c327204ec56c94566bb8e11668c06bf6511a",
+      "serverId": "6d2eb258-4fe2-443e-8a38-ca81da23d4c2",
+      "unresolved": true
+    },
+    {
+      "key": {
+        "uuid": "e00cbd1e_2845bfbe",
+        "filename": "packages/verify.sh",
+        "patchSetId": 2
+      },
+      "lineNbr": 49,
+      "author": {
+        "id": 1269
+      },
+      "writtenOn": "2020-06-08T07:32:43Z",
+      "side": 1,
+      "message": "I prefer check it one by one, so you know which one is not up",
+      "revId": "e857c327204ec56c94566bb8e11668c06bf6511a",
+      "serverId": "6d2eb258-4fe2-443e-8a38-ca81da23d4c2",
+      "unresolved": true
+    }
+  ]
+}
