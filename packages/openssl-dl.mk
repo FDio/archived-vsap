@@ -11,9 +11,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-openssl_version            := 3.0.0-alpha2
+openssl_version            := 3.0.0-alpha3
 openssl_tarball            := openssl-$(openssl_version).tar.gz
-openssl_tarball_md5sum     := a09ce9a0f52a6744457ee2a37c9f10b4
+openssl_tarball_md5sum     := f43ee43c09ce92e4995921b33032db16
 openssl_url                := https://www.openssl.org/source/$(openssl_tarball)
 
 $(eval $(call download,openssl))
