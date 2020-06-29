@@ -23,6 +23,12 @@ nginx_vcl_tarball            := nginx-$(nginx_vcl_version).tar.gz
 nginx_vcl_tarball_strip_dirs := 1
 nginx_vcl_desc               := "vcl nginx"
 
+vsap_vcl_pkg_deb_name        := vsap-vcl
+vsap_vcl_version             := 1.0
+vsap_vcl_install_dir         := $(CURDIR)/root
+vsap_vcl_pkg_deb_dir         := $(CURDIR)/
+vsap_vcl_deb_inst_dir        := /
+vsap_vcl_desc                := "vsap vcl"
 
 define  nginx_vcl_patch_cmds
 	@for f in $(nginx_vcl_patch_dir)/*.patch ; do \
@@ -69,6 +75,30 @@ endef
 define  nginx_vcl_pkg_deb_cp_cmds
 	@echo "--- move deb to $(CURDIR)/deb-vcl ---"
 	@mv $(nginx_vcl_pkg_deb_dir)/*.deb deb-vcl/.
+	@for f in deb-vcl/*.deb ; do \
+		echo $$f: $$(basename $$f) ; \
+		dpkg -x $$f root ; \
+	done
+	@fpm -f -s dir \
+		-t deb \
+		-n $(vsap_vcl_pkg_deb_name) \
+		-v $(vsap_vcl_version) \
+		-C $(vsap_vcl_install_dir) \
+		-p $(vsap_vcl_pkg_deb_dir) \
+		--prefix $(vsap_vcl_deb_inst_dir) \
+		--license $(LICENSE) \
+		--iteration $(LINUX_ITER) \
+		--vendor Intel \
+		--description $(vsap_vcl_desc) \
+		--pre-install packages/pre-install \
+		--post-install packages/post-install \
+		--before-remove packages/pre-remove \
+		--deb-no-default-config-files
+
+	@for f in *.deb ; do \
+		echo "Move package {:path=>$(CURDIR)/deb-vcl/$$f }"  ; \
+	done
+	@rm -rf root; rm deb-vcl/*.deb; mv *.deb deb-vcl/
 endef
 
 $(eval $(call package,nginx_vcl))

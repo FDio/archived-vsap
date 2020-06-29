@@ -1,0 +1,3 @@
+#!/bin/bash
+groupadd -f -r vpp
+service vpp restart
