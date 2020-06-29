@@ -28,6 +28,8 @@ DL_CACHE_DIR = $(CURDIR)/downloads
 vpp ?= master
 MAKE ?= make
 MAKE_ARGS ?= -j
+openssl3_enable ?= 0
+debug ?= 0
 BUILD_DIR        ?= $(CURDIR)/_build
 INSTALL_DIR      ?= $(CURDIR)/_install
 
@@ -53,6 +55,9 @@ help:
 	@echo " clean           - clean up build environment."
 	@echo " clean-vcl       - clean up build vcl environment."
 	@echo " clean-ldp       - clean up build ldp environment."
+	@echo "Make Arguments:"
+	@echo " debug           - 1:make build, 0:make build-release"
+	@echo " openssl3_enable - 1:support openssl3"	
 	@echo ""
 
 include packages/packages.mk
