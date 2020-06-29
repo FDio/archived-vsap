@@ -30,7 +30,11 @@ define  vpp_ldp_patch_cmds
 		git reset --hard; git clean -f; git checkout master; \
 		if [ $(_VPP_VER) != "master" ] ; then \
 			echo "--- vpp version: $(_VPP_VER) ---"; \
-			git checkout stable/$(_VPP_VER); \
+			if [ $(_VPP_VER) = "2005" ]; then \
+				git checkout v20.05; \
+			elif [ $(_VPP_VER) = "2001" ]; then \
+				git checkout v20.01; \
+			fi; \
 			git reset --hard; git clean -f; \
 		fi
 	@for f in $(CURDIR)/vpp_patches/common/*.patch ; do \
@@ -53,6 +57,12 @@ define  vpp_ldp_patch_cmds
 	@if [ $(_VPP_VER) = "master" ]; then \
 		echo "--- patch master ---"; \
 		for f in $(CURDIR)/vpp_patches/ldp/master/*.patch ; do \
+			echo Applying patch: $$(basename $$f) ; \
+			patch -p1 -d $(vpp_ldp_src_dir) < $$f ; \
+		done; \
+	elif [ $(_VPP_VER) = "2005" ]; then \
+		echo "--- patch v20.05 ---"; \
+		for f in $(CURDIR)/vpp_patches/ldp/2005/*.patch ; do \
 			echo Applying patch: $$(basename $$f) ; \
 			patch -p1 -d $(vpp_ldp_src_dir) < $$f ; \
 		done; \

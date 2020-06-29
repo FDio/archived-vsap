@@ -11,7 +11,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-openssl_version            := 3.0.0-alpha2
+openssl_version            := 3.0.0-alpha4
 openssl_install_dir        := /usr/local/ssl
 openssl_deb_inst_dir       := /usr/local/ssl
 openssl_pkg_deb_name       := openssl3
