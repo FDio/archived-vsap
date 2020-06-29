@@ -28,6 +28,8 @@ DL_CACHE_DIR = $(CURDIR)/downloads
 vpp ?= master
 MAKE ?= make
 MAKE_ARGS ?= -j
+openssl3_enable ?= 0
+debug ?= 0
 BUILD_DIR        ?= $(CURDIR)/_build
 INSTALL_DIR      ?= $(CURDIR)/_install
 

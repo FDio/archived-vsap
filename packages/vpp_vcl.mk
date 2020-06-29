@@ -30,25 +30,35 @@ define  vpp_vcl_patch_cmds
 		git reset --hard; git clean -f; git checkout master; \
 		if [ $(_VPP_VER) != "master" ]; then \
 			echo "--- vpp version: $(_VPP_VER) ---"; \
-			git checkout stable/$(_VPP_VER); \
+			if [ $(_VPP_VER) = "2005" ]; then \
+				git checkout v20.05; \
+			elif [ $(_VPP_VER) = "2001" ]; then \
+				git checkout v20.01; \
+			fi; \
 			git reset --hard; git clean -f; \
 		fi
 	@for f in $(CURDIR)/vpp_patches/common/*.patch ; do \
 		echo Applying patch: $$(basename $$f) ; \
 		patch -p1 -d $(vpp_vcl_src_dir) < $$f ; \
 	done
-	@if [ $(_VPP_VER) = "2005" -o $(_VPP_VER) = "master" ]; then \
-		echo "--- vpp master ---"; \
-		for f in $(CURDIR)/vpp_patches/common/master/*.patch ; do \
+	@if [ $(openssl3_enable) = 1 ]; then \
+		for f in $(CURDIR)/vpp_patches/other/*.patch ; do \
 			echo Applying patch: $$(basename $$f) ; \
 			patch -p1 -d $(vpp_vcl_src_dir) < $$f ; \
 		done; \
-	elif [ $(_VPP_VER) = "2001" ]; then \
-		echo "--- vpp 20.01 ---"; \
-		for f in $(CURDIR)/vpp_patches/common/2001/*.patch ; do \
-			echo Applying patch: $$(basename $$f) ; \
-			patch -p1 -d $(vpp_vcl_src_dir) < $$f ; \
-		done; \
+		if [ $(_VPP_VER) = "2005" -o $(_VPP_VER) = "master" ]; then \
+			echo "--- vpp master ---"; \
+			for f in $(CURDIR)/vpp_patches/other/master/*.patch;do\
+				echo Applying patch: $$(basename $$f) ; \
+				patch -p1 -d $(vpp_vcl_src_dir) < $$f ; \
+			done; \
+		elif [ $(_VPP_VER) = "2001" ]; then \
+			echo "--- vpp 20.01 ---"; \
+			for f in $(CURDIR)/vpp_patches/other/2001/*.patch;do\
+				echo Applying patch: $$(basename $$f) ; \
+				patch -p1 -d $(vpp_vcl_src_dir) < $$f ; \
+			done; \
+		fi; \
 	fi
 	@for f in $(CURDIR)/vpp_patches/vcl/*.patch ; do \
 		echo Applying patch: $$(basename $$f) ; \
@@ -66,11 +76,15 @@ endef
 define  vpp_vcl_build_cmds
 	@cd $(vpp_vcl_src_dir); \
 		echo "--- build : $(vpp_vcl_src_dir)"; \
-		export OPENSSL_ROOT_DIR=$(openssl_install_dir); \
-		export LD_LIBRARY_PATH=$(openssl_install_dir)/lib; \
-		$(MAKE) wipe-release; \
-		rm -f $(vpp_vcl_pkg_deb_dir)/*.deb; \
-		$(MAKE) build-release; \
+		if [ $(openssl3_enable) = 1 ]; then \
+			export OPENSSL_ROOT_DIR=$(openssl_install_dir); \
+			export LD_LIBRARY_PATH=$(openssl_install_dir)/lib; \
+		fi; \
+		$(MAKE) wipe-release; $(MAKE) wipe; \
+		cd build-root; $(MAKE) distclean; cd ..; \
+		if [ $(debug) = 1 ]; then $(MAKE) build;\
+		else $(MAKE) build-release; \
+		fi; \
 		$(MAKE) pkg-deb;
 endef
 
