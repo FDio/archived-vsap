@@ -21,6 +21,12 @@ nginx_ldp_tarball            := nginx-$(nginx_ldp_version).tar.gz
 nginx_ldp_tarball_strip_dirs := 1
 nginx_ldp_desc               := "ldp nginx"
 
+vsap_ldp_pkg_deb_name        := vsap-ldp
+vsap_ldp_version             := 1.0
+vsap_ldp_install_dir         := $(CURDIR)/deb-ldp/root
+vsap_ldp_pkg_deb_dir         := $(CURDIR)/deb-ldp
+vsap_ldp_deb_inst_dir        := /
+vsap_ldp_desc                := "vsap ldp"
 
 define  nginx_ldp_patch_cmds
 	@true
@@ -64,6 +70,24 @@ endef
 define  nginx_ldp_pkg_deb_cp_cmds
 	@echo "--- move deb to $(CURDIR)/deb-ldp ---"
 	@mv $(nginx_ldp_pkg_deb_dir)/*.deb deb-ldp/.
+	@cd deb-ldp; echo CURDIR=$(CURDIR); \
+		for f in *.deb ; do \
+			echo $$f: $$(basename $$f) ; \
+			dpkg -x $$f root ; \
+		done; \
+		fpm -f -s dir \
+			-t deb \
+			-n $(vsap_ldp_pkg_deb_name) \
+			-v $(vsap_ldp_version) \
+			-C $(vsap_ldp_install_dir) \
+			-p $(vsap_ldp_pkg_deb_dir) \
+			--prefix $(vsap_ldp_deb_inst_dir) \
+			--license $(LICENSE) \
+			--iteration $(LINUX_ITER) \
+			--vendor Intel \
+			--description $(vsap_ldp_desc) \
+			--deb-no-default-config-files 
+
 endef
 
 $(eval $(call package,nginx_ldp))
