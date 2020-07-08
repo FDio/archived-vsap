@@ -1,0 +1,38 @@
+{
+  "comments": [
+    {
+      "key": {
+        "uuid": "268633f0_12a60d8b",
+        "filename": "Makefile",
+        "patchSetId": 6
+      },
+      "lineNbr": 60,
+      "author": {
+        "id": 1269
+      },
+      "writtenOn": "2020-07-08T07:16:27Z",
+      "side": 1,
+      "message": "Remove un-necessary blank",
+      "revId": "fc34b69faf42e64fa6b19cb4d67a4b6de5957013",
+      "serverId": "6d2eb258-4fe2-443e-8a38-ca81da23d4c2",
+      "unresolved": true
+    },
+    {
+      "key": {
+        "uuid": "c57da35d_707b5e41",
+        "filename": "packages/post-install",
+        "patchSetId": 6
+      },
+      "lineNbr": 3,
+      "author": {
+        "id": 1269
+      },
+      "writtenOn": "2020-07-08T07:16:27Z",
+      "side": 1,
+      "message": "is this used for CSIT testing?",
+      "revId": "fc34b69faf42e64fa6b19cb4d67a4b6de5957013",
+      "serverId": "6d2eb258-4fe2-443e-8a38-ca81da23d4c2",
+      "unresolved": true
+    }
+  ]
+}
