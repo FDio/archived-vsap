@@ -46,9 +46,15 @@ define  vpp_ldp_patch_cmds
 			echo Applying patch: $$(basename $$f) ; \
 			patch -p1 -d $(vpp_vcl_src_dir) < $$f ; \
 		done; \
-		if [ $(_VPP_VER) = "master" -o $(_VPP_VER) = "2005" ]; then \
+		if [ $(_VPP_VER) = "master" ]; then \
 			echo "--- vpp master ---"; \
 			for f in $(CURDIR)/vpp_patches/other/master/*; do \
+				echo Applying patch: $$(basename $$f) ; \
+				patch -p1 -d $(vpp_ldp_src_dir) < $$f ; \
+			done; \
+		elif [ $(_VPP_VER) = "2005" ]; then \
+			echo "--- vpp 20.05 ---"; \
+			for f in $(CURDIR)/vpp_patches/other/2005/*.patch ;do \
 				echo Applying patch: $$(basename $$f) ; \
 				patch -p1 -d $(vpp_ldp_src_dir) < $$f ; \
 			done; \
