@@ -18,7 +18,7 @@ vpp_ldp_pkg_deb_name       := vpp
 vpp_ldp_pkg_deb_dir        := $(CURDIR)/vpp/build-root
 vpp_ldp_desc               := "ldp vpp"
 openssl_install_dir        ?= /usr/local/ssl
-
+openssl_github_2005patch   := $(CURDIR)/vpp_patches/other/2005/github
 
 define  vpp_ldp_extract_cmds
 	@true
@@ -46,12 +46,25 @@ define  vpp_ldp_patch_cmds
 			echo Applying patch: $$(basename $$f) ; \
 			patch -p1 -d $(vpp_vcl_src_dir) < $$f ; \
 		done; \
-		if [ $(_VPP_VER) = "master" -o $(_VPP_VER) = "2005" ]; then \
+		if [ $(_VPP_VER) = "master" ]; then \
 			echo "--- vpp master ---"; \
 			for f in $(CURDIR)/vpp_patches/other/master/*; do \
 				echo Applying patch: $$(basename $$f) ; \
 				patch -p1 -d $(vpp_ldp_src_dir) < $$f ; \
 			done; \
+		elif [ $(_VPP_VER) = "2005" ]; then \
+			echo "--- vpp 20.05 ---"; \
+			if [ $(openssl_github) = 1 ]; then \
+				for f in $(openssl_github_2005patch)/*.patch;do\
+					echo Applying patch: $$(basename $$f) ;\
+					patch -p1 -d $(vpp_vcl_src_dir) < $$f ;\
+				done; \
+			else \
+			for f in $(CURDIR)/vpp_patches/other/2005/*.patch ;do \
+				echo Applying patch: $$(basename $$f) ; \
+				patch -p1 -d $(vpp_ldp_src_dir) < $$f ; \
+			done; \
+			fi; \
 		elif [ $(_VPP_VER) = "2001" ]; then \
 			echo "--- vpp 20.01 ---"; \
 			for f in $(CURDIR)/vpp_patches/other/2001/*.patch ;do \

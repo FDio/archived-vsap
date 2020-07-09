@@ -24,11 +24,14 @@ SHELL := /bin/bash
 
 export BR=$(CURDIR)
 
+PKG_VERSION := $(shell cd vpp; git describe |cut -dv -f2)
+
 DL_CACHE_DIR = $(CURDIR)/downloads
 vpp ?= master
 MAKE ?= make
 MAKE_ARGS ?= -j
 openssl3_enable ?= 0
+openssl_github ?= 1
 debug ?= 0
 BUILD_DIR        ?= $(CURDIR)/_build
 INSTALL_DIR      ?= $(CURDIR)/_install
@@ -56,8 +59,15 @@ help:
 	@echo " clean-vcl       - clean up build vcl environment."
 	@echo " clean-ldp       - clean up build ldp environment."
 	@echo "Make Arguments:"
-	@echo " debug           - 1:make build, 0:make build-release"
-	@echo " openssl3_enable - 1:support openssl3"
+	@echo " debug           - 1: make build."
+	@echo "                   0: make build-release"
+	@echo "                   default 0"
+	@echo " openssl3_enable - 1: support openssl3 0."
+	@echo "                   0: not support openssl3.0"
+	@echo "                   default 0"
+	@echo " openssl_github  - 1: using github/openssl"
+	@echo "                   0: openssl relase"
+	@echo "                   default 1"
 	@echo ""
 
 include packages/packages.mk
