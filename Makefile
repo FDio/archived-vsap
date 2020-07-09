@@ -29,6 +29,7 @@ vpp ?= master
 MAKE ?= make
 MAKE_ARGS ?= -j
 openssl3_enable ?= 0
+openssl_github ?= 1
 debug ?= 0
 BUILD_DIR        ?= $(CURDIR)/_build
 INSTALL_DIR      ?= $(CURDIR)/_install

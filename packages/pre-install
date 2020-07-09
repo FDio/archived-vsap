@@ -1,5 +1,4 @@
 #!/bin/bash
-set -x
 
 # kill nginx.
 retval=$(ps -A | grep nginx | grep -v grep | awk '{print $1}' | wc -l)

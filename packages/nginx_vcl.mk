@@ -76,7 +76,6 @@ define  nginx_vcl_pkg_deb_cp_cmds
 	@echo "--- move deb to $(CURDIR)/deb-vcl ---"
 	@mv $(nginx_vcl_pkg_deb_dir)/*.deb deb-vcl/.
 	@for f in deb-vcl/*.deb ; do \
-		echo $$f: $$(basename $$f) ; \
 		dpkg -x $$f root ; \
 	done
 	@fpm -f -s dir \

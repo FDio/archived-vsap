@@ -71,7 +71,6 @@ define  nginx_ldp_pkg_deb_cp_cmds
 	@echo "--- move deb to $(CURDIR)/deb-ldp ---"
 	@mv $(nginx_ldp_pkg_deb_dir)/*.deb deb-ldp/.
 	@for f in deb-ldp/*.deb ; do \
-		echo $$f: $$(basename $$f) ; \
 		dpkg -x $$f root ; \
 	done
 	@fpm -f -s dir \

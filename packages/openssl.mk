@@ -11,7 +11,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-openssl_version            := 3.0.0-alpha4
 openssl_install_dir        := /usr/local/ssl
 openssl_deb_inst_dir       := /usr/local/ssl
 openssl_pkg_deb_name       := openssl3
@@ -22,20 +21,35 @@ openssl_pkg_rpm_dir        := $(I)/openssl-rpm
 openssl_tarball_strip_dirs := 1
 openssl_desc               := "openssl3.0.0"
 
+ifeq ($(openssl_github),1)
+define  openssl_download_cmds
+	@echo "---download openssl ---";
+	@cd downloads; git clone $(openssl_github_url);
+endef
+
+define  openssl_checksum_cmds
+	@true
+endef
+
+define  openssl_extract_cmds
+	@cp -rf downloads/openssl $(openssl_src_dir)
+	@cd $(openssl_src_dir);git reset --hard $(openssl_commit);git clean -f;
+endef
+endif
+
 define  openssl_patch_cmds
 	@true
 endef
 
 define  openssl_config_cmds
-	@cd $(openssl_build_dir) && \
-		$(openssl_src_dir)/config \
+	@cd $(openssl_src_dir); ./config \
 		--prefix=$(openssl_install_dir) shared zlib
 endef
 
 define  openssl_build_cmds
-	@$(MAKE) -C $(openssl_build_dir) depend
-	@$(MAKE) -C $(openssl_build_dir)
-	@$(MAKE) -C $(openssl_build_dir) install
+	@$(MAKE) -C $(openssl_src_dir) depend
+	@$(MAKE) -C $(openssl_src_dir)
+	@$(MAKE) -C $(openssl_src_dir) install
 endef
 
 define  openssl_install_cmds

@@ -58,8 +58,12 @@ function test_vcl(){
     fi
     echo "===================================================================="
 
-    sudo killall -v -s 9 nginx || echo ""
-    sudo kill -9 ${vpp_pid} || echo ""
+    retval=$(ps -A | grep nginx | grep -v grep | awk '{print $1}' | wc -l)
+    if [[ $retval -ne 0 ]]; then
+        ps -A | grep nginx | grep -v grep | awk '{print $1}' | xargs kill -9
+    fi
+
+    kill -9 ${vpp_pid} || echo ""
     rm -f ${BR}/configs/nginx-test.conf
     rm -f ${BR}/configs/startup-test.conf
     rm -f ${BR}/configs/vppset
@@ -123,8 +127,12 @@ function test_ldp(){
     fi
     echo "===================================================================="
 
-    sudo killall -v -s 9 nginx || echo ""
-    sudo kill -9 ${vpp_pid} || echo ""
+    retval=$(ps -A | grep nginx | grep -v grep | awk '{print $1}' | wc -l)
+    if [[ $retval -ne 0 ]]; then
+        ps -A | grep nginx | grep -v grep | awk '{print $1}' | xargs kill -9
+    fi
+
+    kill -9 ${vpp_pid} || echo ""
 
     rm -f ${BR}/configs/nginx-test.conf
     rm -f ${BR}/configs/startup-test.conf
