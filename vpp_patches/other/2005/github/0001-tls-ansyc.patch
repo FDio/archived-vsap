@@ -1,0 +1,25 @@
+From f0c5979de31e041514cee8d1909eea825449ef79 Mon Sep 17 00:00:00 2001
+From: "xiaolongx.jiang" <xiaolongx.jiang@intel.com>
+Date: Mon, 13 Jul 2020 08:09:45 +0000
+Subject: [PATCH] tls ansyc
+
+Signed-off-by: xiaolongx.jiang <xiaolongx.jiang@intel.com>
+---
+ src/plugins/tlsopenssl/tls_async.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/src/plugins/tlsopenssl/tls_async.c b/src/plugins/tlsopenssl/tls_async.c
+index fdfcf3a6c..d2828e2dc 100644
+--- a/src/plugins/tlsopenssl/tls_async.c
++++ b/src/plugins/tlsopenssl/tls_async.c
+@@ -122,6 +122,7 @@ openssl_engine_register (char *engine_name, char *algorithm, int async)
+ 
+   for (i = 0; i < ARRAY_LEN (engine_list); i++)
+     {
++	clib_warning ("%d----------register engine list:name: %s:%s", i, engine_list[i].engine, engine_name);
+       if (!strcmp (engine_list[i].engine, engine_name))
+ 	{
+ 	  om->polling = engine_list[i].polling;
+-- 
+2.17.1
+

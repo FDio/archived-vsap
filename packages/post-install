@@ -1,3 +1,5 @@
 #!/bin/bash
 groupadd -f -r vpp
-service vpp restart
+
+sysctl --system
+service vpp start

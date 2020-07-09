@@ -24,11 +24,14 @@ SHELL := /bin/bash
 
 export BR=$(CURDIR)
 
+PKG_VERSION := $(shell cd vpp; git describe |cut -dv -f2)
+
 DL_CACHE_DIR = $(CURDIR)/downloads
 vpp ?= master
 MAKE ?= make
 MAKE_ARGS ?= -j
 openssl3_enable ?= 0
+openssl_github ?= 1
 debug ?= 0
 BUILD_DIR        ?= $(CURDIR)/_build
 INSTALL_DIR      ?= $(CURDIR)/_install
