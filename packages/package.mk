@@ -21,6 +21,7 @@ define download
 ##############################################################################
 ifeq ($$(call $1_download_cmds),)
 define $1_download_cmds
+	$$(call h1,"download $($1_tarball) ")
 	@if [ -e $(DL_CACHE_DIR)/$($1_tarball) ] ; \
 		then cp $(DL_CACHE_DIR)/$($1_tarball) $$@ ; \
 	else \
@@ -32,7 +33,6 @@ endif
 
 downloads/$($1_tarball):
 	mkdir -p downloads
-	$$(call h1,"download $($1_tarball) ")
 	$$(call $1_download_cmds)
 	@rm -f $(B)/.$1.download.ok
 

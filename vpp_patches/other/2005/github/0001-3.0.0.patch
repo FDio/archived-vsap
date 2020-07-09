@@ -1,0 +1,122 @@
+From facf1886a7a130c5aab5c0322dfc74a5ed627b04 Mon Sep 17 00:00:00 2001
+From: "xiaolongx.jiang" <xiaolongx.jiang@intel.com>
+Date: Mon, 13 Jul 2020 06:24:35 +0000
+Subject: [PATCH] 3.0.0
+
+Signed-off-by: xiaolongx.jiang <xiaolongx.jiang@intel.com>
+---
+ src/plugins/crypto_openssl/CMakeLists.txt | 26 ----------------
+ src/plugins/ikev2/CMakeLists.txt          | 38 -----------------------
+ src/plugins/tlsopenssl/tls_openssl.c      |  4 +--
+ 3 files changed, 1 insertion(+), 67 deletions(-)
+ delete mode 100644 src/plugins/crypto_openssl/CMakeLists.txt
+ delete mode 100644 src/plugins/ikev2/CMakeLists.txt
+
+diff --git a/src/plugins/crypto_openssl/CMakeLists.txt b/src/plugins/crypto_openssl/CMakeLists.txt
+deleted file mode 100644
+index d014144ec..000000000
+--- a/src/plugins/crypto_openssl/CMakeLists.txt
++++ /dev/null
+@@ -1,26 +0,0 @@
+-# Copyright (c) 2018 Cisco and/or its affiliates.
+-# Licensed under the Apache License, Version 2.0 (the "License");
+-# you may not use this file except in compliance with the License.
+-# You may obtain a copy of the License at:
+-#
+-#     http://www.apache.org/licenses/LICENSE-2.0
+-#
+-# Unless required by applicable law or agreed to in writing, software
+-# distributed under the License is distributed on an "AS IS" BASIS,
+-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+-# See the License for the specific language governing permissions and
+-# limitations under the License.
+-
+-if(NOT OPENSSL_FOUND)
+-  return()
+-endif()
+-
+-include_directories(${OPENSSL_INCLUDE_DIR})
+-
+-add_vpp_plugin(crypto_openssl
+-  SOURCES
+-  main.c
+-
+-  LINK_LIBRARIES
+-  ${OPENSSL_LIBRARIES}
+-)
+diff --git a/src/plugins/ikev2/CMakeLists.txt b/src/plugins/ikev2/CMakeLists.txt
+deleted file mode 100644
+index dac246524..000000000
+--- a/src/plugins/ikev2/CMakeLists.txt
++++ /dev/null
+@@ -1,38 +0,0 @@
+-# Copyright (c) 2018 Cisco and/or its affiliates.
+-# Licensed under the Apache License, Version 2.0 (the "License");
+-# you may not use this file except in compliance with the License.
+-# You may obtain a copy of the License at:
+-#
+-#     http://www.apache.org/licenses/LICENSE-2.0
+-#
+-# Unless required by applicable law or agreed to in writing, software
+-# distributed under the License is distributed on an "AS IS" BASIS,
+-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+-# See the License for the specific language governing permissions and
+-# limitations under the License.
+-
+-add_definitions (-DWITH_LIBSSL=1)
+-include_directories(${OPENSSL_INCLUDE_DIR})
+-
+-add_vpp_plugin(ikev2
+-  SOURCES
+-  ikev2.c
+-  ikev2_api.c
+-  ikev2_cli.c
+-  ikev2_crypto.c
+-  ikev2_format.c
+-  ikev2_payload.c
+-
+-  API_FILES
+-  ikev2.api
+-
+-  API_TEST_SOURCES
+-  ikev2_test.c
+-
+-  INSTALL_HEADERS
+-  ikev2.h
+-  ikev2_priv.h
+-
+-  LINK_LIBRARIES
+-  ${OPENSSL_LIBRARIES}
+-)
+diff --git a/src/plugins/tlsopenssl/tls_openssl.c b/src/plugins/tlsopenssl/tls_openssl.c
+index 669a50348..d1c198e8f 100644
+--- a/src/plugins/tlsopenssl/tls_openssl.c
++++ b/src/plugins/tlsopenssl/tls_openssl.c
+@@ -564,7 +564,6 @@ openssl_ctx_init_client (tls_ctx_t * ctx)
+       return -1;
+     }
+ 
+-  SSL_CTX_set_ecdh_auto (oc->ssl_ctx, 1);
+   SSL_CTX_set_mode (oc->ssl_ctx, SSL_MODE_ENABLE_PARTIAL_WRITE);
+ #ifdef HAVE_OPENSSL_ASYNC
+   if (om->async)
+@@ -680,7 +679,6 @@ openssl_start_listen (tls_ctx_t * lctx)
+     }
+ #endif
+   SSL_CTX_set_options (ssl_ctx, flags);
+-  SSL_CTX_set_ecdh_auto (ssl_ctx, 1);
+ 
+   rv = SSL_CTX_set_cipher_list (ssl_ctx, (const char *) om->ciphers);
+   if (rv != 1)
+@@ -881,7 +879,7 @@ tls_init_ca_chain (void)
+       return -1;
+     }
+ 
+-#if OPENSSL_VERSION_NUMBER >= 0x30000000L
++#if 0
+   rv = X509_STORE_load_file (om->cert_store, tm->ca_cert_path);
+ #else
+   rv = X509_STORE_load_locations (om->cert_store, tm->ca_cert_path, 0);
+-- 
+2.17.1
+

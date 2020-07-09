@@ -59,6 +59,7 @@ $1-extract: $(B)/.$1.extract.ok
 ifeq ($$(call $1_patch_cmds),)
 define $1_patch_cmds
 #ifneq ($$(wildcard $$($1_patch_dir)/*.patch),)
+	$$(call h1,"patching $1 $$($1_patch_dir)")
 	@for f in $$($1_patch_dir)/*.patch ; do \
 		echo "Applying patch: $$$$(basename $$$$f)" ; \
 		patch -p1 -d $$($1_src_dir) < $$$$f ; \
@@ -69,7 +70,6 @@ endef
 endif
 
 $(B)/.$1.patch.ok: $(B)/.$1.extract.ok
-	$$(call h1,"patching $1 $$($1_patch_dir)")
 	$$(call $1_patch_cmds)
 	@touch $$@
 
