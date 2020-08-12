@@ -1,14 +1,14 @@
-From ff2148e2aec6c8fb9717f655aee424d9ec59f802 Mon Sep 17 00:00:00 2001
-From: "xiaolongx.jiang" <xiaolongx.jiang@intel.com>
-Date: Wed, 13 May 2020 09:42:07 +0000
+From e3f88ac8f6fbe74ae26ddde116b53402e8eac692 Mon Sep 17 00:00:00 2001
+From: Xiaolong Jiang <xiaolongx.jiang@intel.com>
+Date: Tue, 11 Aug 2020 17:44:49 +0800
 Subject: [PATCH] 3.0.0
 
-Signed-off-by: xiaolongx.jiang <xiaolongx.jiang@intel.com>
+Signed-off-by: Xiaolong Jiang <xiaolongx.jiang@intel.com>
 ---
- src/plugins/crypto_openssl/CMakeLists.txt | 26 ----------------
- src/plugins/ikev2/CMakeLists.txt          | 38 -----------------------
- src/plugins/tlsopenssl/tls_openssl.c      |  2 --
- 3 files changed, 66 deletions(-)
+ src/plugins/crypto_openssl/CMakeLists.txt | 26 ---------------
+ src/plugins/ikev2/CMakeLists.txt          | 39 -----------------------
+ src/plugins/tlsopenssl/tls_openssl.c      |  5 ++-
+ 3 files changed, 2 insertions(+), 68 deletions(-)
  delete mode 100644 src/plugins/crypto_openssl/CMakeLists.txt
  delete mode 100644 src/plugins/ikev2/CMakeLists.txt
 
@@ -46,10 +46,10 @@ index d014144ec..000000000
 -)
 diff --git a/src/plugins/ikev2/CMakeLists.txt b/src/plugins/ikev2/CMakeLists.txt
 deleted file mode 100644
-index dac246524..000000000
+index 6f2e5a681..000000000
 --- a/src/plugins/ikev2/CMakeLists.txt
 +++ /dev/null
-@@ -1,38 +0,0 @@
+@@ -1,39 +0,0 @@
 -# Copyright (c) 2018 Cisco and/or its affiliates.
 -# Licensed under the Apache License, Version 2.0 (the "License");
 -# you may not use this file except in compliance with the License.
@@ -76,6 +76,7 @@ index dac246524..000000000
 -  ikev2_payload.c
 -
 -  API_FILES
+-  ikev2_types.api
 -  ikev2.api
 -
 -  API_TEST_SOURCES
@@ -89,7 +90,7 @@ index dac246524..000000000
 -  ${OPENSSL_LIBRARIES}
 -)
 diff --git a/src/plugins/tlsopenssl/tls_openssl.c b/src/plugins/tlsopenssl/tls_openssl.c
-index 669a50348..a9799a21f 100644
+index 669a50348..2a79ff97e 100644
 --- a/src/plugins/tlsopenssl/tls_openssl.c
 +++ b/src/plugins/tlsopenssl/tls_openssl.c
 @@ -564,7 +564,6 @@ openssl_ctx_init_client (tls_ctx_t * ctx)
@@ -108,6 +109,16 @@ index 669a50348..a9799a21f 100644
  
    rv = SSL_CTX_set_cipher_list (ssl_ctx, (const char *) om->ciphers);
    if (rv != 1)
+@@ -881,7 +879,8 @@ tls_init_ca_chain (void)
+       return -1;
+     }
+ 
+-#if OPENSSL_VERSION_NUMBER >= 0x30000000L
++//#if OPENSSL_VERSION_NUMBER >= 0x30000000L
++#if 0
+   rv = X509_STORE_load_file (om->cert_store, tm->ca_cert_path);
+ #else
+   rv = X509_STORE_load_locations (om->cert_store, tm->ca_cert_path, 0);
 -- 
 2.17.1
 
