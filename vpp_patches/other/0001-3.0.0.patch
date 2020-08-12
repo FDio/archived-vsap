@@ -1,14 +1,14 @@
-From ff2148e2aec6c8fb9717f655aee424d9ec59f802 Mon Sep 17 00:00:00 2001
-From: "xiaolongx.jiang" <xiaolongx.jiang@intel.com>
-Date: Wed, 13 May 2020 09:42:07 +0000
+From ebf44f59ec2dd090643c43b633fdff94f069a1ec Mon Sep 17 00:00:00 2001
+From: Xiaolong Jiang <xiaolongx.jiang@intel.com>
+Date: Wed, 12 Aug 2020 14:00:04 +0800
 Subject: [PATCH] 3.0.0
 
-Signed-off-by: xiaolongx.jiang <xiaolongx.jiang@intel.com>
+Signed-off-by: Xiaolong Jiang <xiaolongx.jiang@intel.com>
 ---
- src/plugins/crypto_openssl/CMakeLists.txt | 26 ----------------
- src/plugins/ikev2/CMakeLists.txt          | 38 -----------------------
+ src/plugins/crypto_openssl/CMakeLists.txt | 26 ---------------
+ src/plugins/ikev2/CMakeLists.txt          | 39 -----------------------
  src/plugins/tlsopenssl/tls_openssl.c      |  2 --
- 3 files changed, 66 deletions(-)
+ 3 files changed, 67 deletions(-)
  delete mode 100644 src/plugins/crypto_openssl/CMakeLists.txt
  delete mode 100644 src/plugins/ikev2/CMakeLists.txt
 
@@ -46,10 +46,10 @@ index d014144ec..000000000
 -)
 diff --git a/src/plugins/ikev2/CMakeLists.txt b/src/plugins/ikev2/CMakeLists.txt
 deleted file mode 100644
-index dac246524..000000000
+index 6f2e5a681..000000000
 --- a/src/plugins/ikev2/CMakeLists.txt
 +++ /dev/null
-@@ -1,38 +0,0 @@
+@@ -1,39 +0,0 @@
 -# Copyright (c) 2018 Cisco and/or its affiliates.
 -# Licensed under the Apache License, Version 2.0 (the "License");
 -# you may not use this file except in compliance with the License.
@@ -76,6 +76,7 @@ index dac246524..000000000
 -  ikev2_payload.c
 -
 -  API_FILES
+-  ikev2_types.api
 -  ikev2.api
 -
 -  API_TEST_SOURCES
