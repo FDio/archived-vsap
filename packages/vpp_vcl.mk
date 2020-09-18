@@ -100,8 +100,10 @@ define  vpp_vcl_pkg_deb_cp_cmds
 	@echo "--- move deb to $(CURDIR)/dev-vcl ---"
 	@mkdir -p deb-vcl
 	@rm -f deb-vcl/*
-	@mv $(I)/openssl-deb/*.deb .
-	@rm $(B)/.openssl.pkg-deb.ok
+	@if [ $(openssl_enable) = 1 ]; then \
+		mv $(I)/openssl-deb/*.deb .; \
+		rm $(B)/.openssl.pkg-deb.ok; \
+	fi
 	@mv $(vpp_vcl_pkg_deb_dir)/*.deb deb-vcl/.
 endef
 

@@ -24,6 +24,8 @@ SHELL := /bin/bash
 
 export BR=$(CURDIR)
 
+VPP_TAG := $(shell cd vpp; git describe |cut -dv -f2)
+
 DL_CACHE_DIR = $(CURDIR)/downloads
 vpp ?= master
 MAKE ?= make
@@ -87,16 +89,33 @@ $(BR)/.deps.ok:
 	@touch $@
 
 .PHONY: build-vcl
+ifeq ($(openssl3_enable),1)
 build-vcl: $(BR)/.deps.ok openssl-dl nginx-dl openssl-build vpp_vcl-build nginx_vcl-build
+else
+build-vcl: $(BR)/.deps.ok nginx-dl vpp_vcl-build nginx_vcl-build
+endif
 
 .PHONY: build-ldp
+ifeq ($(openssl3_enable),1)
 build-ldp: $(BR)/.deps.ok openssl-dl nginx-dl openssl-build vpp_ldp-build nginx_ldp-build
+else
+build-ldp: $(BR)/.deps.ok nginx-dl vpp_ldp-build nginx_ldp-build
+endif
 
 .PHONY: deb-vcl
+ifeq ($(openssl3_enable),1)
 deb-vcl: build-vcl openssl-deb vpp_vcl-deb nginx_vcl-deb
+else
+deb-vcl: build-vcl vpp_vcl-deb nginx_vcl-deb
+endif
 
 .PHONY: deb-ldp
+ifeq ($(openssl3_enable),1)
 deb-ldp: build-ldp openssl-deb vpp_ldp-deb nginx_ldp-deb
+else
+deb-ldp: build-ldp vpp_ldp-deb nginx_ldp-deb
+endif
+
 
 .PHONY: verify-vcl
 verify-vcl: build-vcl

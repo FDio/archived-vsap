@@ -22,7 +22,7 @@ nginx_ldp_tarball_strip_dirs := 1
 nginx_ldp_desc               := "ldp nginx"
 
 vsap_ldp_pkg_deb_name        := vsap-ldp
-vsap_ldp_version             := 1.0
+vsap_ldp_version             := 1.0-$(VPP_TAG)
 vsap_ldp_install_dir         := $(CURDIR)/root
 vsap_ldp_pkg_deb_dir         := $(CURDIR)/
 vsap_ldp_deb_inst_dir        := /
