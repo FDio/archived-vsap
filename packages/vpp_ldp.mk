@@ -114,8 +114,10 @@ define  vpp_ldp_pkg_deb_cp_cmds
 	@echo "--- move deb to $(CURDIR)/deb-ldp ---"
 	@mkdir -p deb-ldp
 	@ls deb-ldp/ ;rm -f deb-ldp/*
-	@mv $(I)/openssl-deb/*.deb .
-	@rm $(B)/.openssl.pkg-deb.ok
+	@if [ $(openssl_enable) = 1 ]; then \
+		mv $(I)/openssl-deb/*.deb .; \
+		rm $(B)/.openssl.pkg-deb.ok; \
+	fi
 	@mv $(vpp_ldp_pkg_deb_dir)/*.deb deb-ldp/.
 endef
 
