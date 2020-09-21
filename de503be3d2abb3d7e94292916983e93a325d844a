@@ -1,0 +1,50 @@
+{
+  "comments": [
+    {
+      "key": {
+        "uuid": "e37ef58f_6cd4e993",
+        "filename": "Makefile",
+        "patchSetId": 2
+      },
+      "lineNbr": 27,
+      "author": {
+        "id": 1263
+      },
+      "writtenOn": "2020-09-21T11:16:05Z",
+      "side": 1,
+      "message": "This is a progress, but still not perfect...",
+      "range": {
+        "startLine": 27,
+        "startChar": 19,
+        "endLine": 27,
+        "endChar": 39
+      },
+      "revId": "de503be3d2abb3d7e94292916983e93a325d844a",
+      "serverId": "6d2eb258-4fe2-443e-8a38-ca81da23d4c2",
+      "unresolved": true
+    },
+    {
+      "key": {
+        "uuid": "d7bd8da2_abf0bf26",
+        "filename": "packages/nginx_ldp.mk",
+        "patchSetId": 2
+      },
+      "lineNbr": 25,
+      "author": {
+        "id": 1263
+      },
+      "writtenOn": "2020-09-21T11:16:05Z",
+      "side": 1,
+      "message": "... as VSAP_TAG is needed here. Basically, do the \"git describe\" processing, but in the VSAP git repo, not VPP repo.\n\nAs \"git describe\" needs an existing git tag, you need to create a tag (e.g. 1.0) in VSAP repo. Also, the tag value is contained in the \"dit describe\" output, the \"1.0-\" in this line will not be needed.\n\nFinally, the existing VSAP verify and merge jobs need to be fixed, as currently they trigger only on changes on (non-existing) stable/2005 VSAP branch.",
+      "range": {
+        "startLine": 25,
+        "startChar": 38,
+        "endLine": 25,
+        "endChar": 45
+      },
+      "revId": "de503be3d2abb3d7e94292916983e93a325d844a",
+      "serverId": "6d2eb258-4fe2-443e-8a38-ca81da23d4c2",
+      "unresolved": true
+    }
+  ]
+}
