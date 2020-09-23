@@ -33,9 +33,9 @@ define  openssl_config_cmds
 endef
 
 define  openssl_build_cmds
-	@$(MAKE) -C $(openssl_build_dir) depend
-	@$(MAKE) -C $(openssl_build_dir)
-	@$(MAKE) -C $(openssl_build_dir) install
+	$(MAKE) -C $(openssl_build_dir) depend
+	$(MAKE) -C $(openssl_build_dir)
+	$(MAKE) -C $(openssl_build_dir) install
 endef
 
 define  openssl_install_cmds

@@ -41,14 +41,15 @@ endef
 
 define  nginx_ldp_build_cmds
 	@$(MAKE) -C $(nginx_ldp_src_dir)
+	@$(MAKE) -C $(nginx_ldp_src_dir) DESTDIR=$(B) install
+	@cp configs/mime.types $(B)$(nginx_ldp_install_dir)/conf/.
+	@cp configs/nginx.conf $(B)$(nginx_ldp_install_dir)/conf/.
+	@cp configs/tls-* $(B)$(nginx_ldp_install_dir)/conf/.
+	@cp configs/vcl.conf $(B)$(nginx_ldp_install_dir)/conf/.
 endef
 
 define  nginx_ldp_install_cmds
-	@$(MAKE) -C $(nginx_ldp_src_dir) install
-	@cp configs/mime.types $(nginx_ldp_install_dir)/conf/.
-	@cp configs/nginx.conf $(nginx_ldp_install_dir)/conf/.
-	@cp configs/tls-* $(nginx_ldp_install_dir)/conf/.
-	@cp configs/vcl.conf $(nginx_ldp_install_dir)/conf/.
+	@true
 endef
 
 define nginx_ldp_pkg_deb_cmds
@@ -56,7 +57,7 @@ define nginx_ldp_pkg_deb_cmds
 		-t deb \
 		-n $(nginx_ldp_pkg_deb_name) \
 		-v $(nginx_ldp_version) \
-		-C $(nginx_ldp_install_dir) \
+		-C $(B)$(nginx_ldp_install_dir) \
 		-p $(nginx_ldp_pkg_deb_dir) \
 		--prefix $(nginx_ldp_deb_inst_dir) \
 		--license $(LICENSE) \
