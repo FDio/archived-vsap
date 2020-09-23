@@ -3,9 +3,9 @@ This repository is to provide an optimized NGINX based on VPP host stack.
 We provide two ways of VPP host stack integration, i.e. LDP and VCL.
 LDP is basically un-modified NGINX with VPP via LD_PRELOAD, while VCL NGINX is
 to integrate VPP host stack directly with NGINX code change.
-This repository provides the nginx build and openssl3.0.0 build, as well
-as the integration of VPP host stacks, namely the LDP and VCL VPP and nginx
-builds, and generates the installation deb packages to the specified location.
+This repository provides the nginx build, as well as the integration of
+VPP host stacks, namely the LDP and VCL VPP and nginx builds, and generates
+the installation deb packages to the specified location.
 
 # 2 Repository Layout
 **configs**: configuration files for VPP, NGINX and VCL
@@ -13,8 +13,6 @@ builds, and generates the installation deb packages to the specified location.
 **nginx_patches**: VCL patches for NGINX
 
 **vpp_patches**: lock-free LDP and pinned-VPP patches
-
-**openssl_patches**: openssl patches
 
 **scripts**: scripts for VPP, NGINX and client test
 
@@ -40,7 +38,7 @@ Build vcl DEB package and store the DEB files in folder '/path/to/this/repo/deb-
 $ make deb-vcl
 
 Build vcl vpp and vcl nginx
-Nginx and Openssl are in folder '/path/to/this/repo/_install/local'
+Nginx is in folder '/path/to/this/repo/_build/usr/local/nginx'
 Vpp is in '/path/to/this/repo/vpp'
 $ make build-vcl
 
@@ -48,7 +46,7 @@ Build ldp DEB package and store the DEB files in folder '/path/to/this/repo/deb-
 $ make deb-ldp
 
 Build ldp vpp and ldp nginx
-Nginx and Openssl are in folder '/path/to/this/repo/_install/local'
+Nginx is in folder '/path/to/this/repo/_build/usr/local/nginx'
 Vpp is in '/path/to/this/repo/vpp'
 $ make build-ldp
 
@@ -59,6 +57,13 @@ $ make deb-vcl vpp=2001
 If you don't take the parameter, the default is master.
 For example:
 $ make deb-vcl
+
+You can choose whether openssl3.0.0 is supported or not.
+$ make deb-vcl openssl3_enable=1
+
+If you already have OpensSL3.0 and don't want to compile Openssl3.0,
+you can add the option 'openssl3_lib_ready'
+$ make deb-vcl openssl3_enable=1 openssl3_lib_ready=1
 
 Verify that vcl starts properly
 $ make verify-vcl
@@ -123,7 +128,7 @@ Now the original NGINX code has been modified to VCL-supporting code.
 Then you can configure and build NGINX.
 
 ```bash
-$ ./configure --with-vcl --vpp-lib-path=/path/to/vpp/build-root/install-vpp-native/vpp/lib --vpp-src-path=/path/to/vpp/src
+$ ./configure --with-vcl --vpp-lib-path=/path/to/this/repo/vpp/build-root/install-vpp-native/vpp/lib --vpp-src-path=/path/to/this/repo/vpp/src
 $ sudo make install
 ```
 
@@ -131,21 +136,21 @@ $ sudo make install
 - Run VPP first
 
   - Refer to startup.conf provided in "configs" to start VPP. (learn how to use startup.conf in section 4.1.1)
-  - If you choose to use the Makefile to build automatically, the VPP is stored in '/path/to/this/repo/_install/local/vpp'
+  - If you choose to use the Makefile to build automatically, the VPP is stored in '/path/to/this/repo/vpp'
 
   ```bash
-  ./vpp -c /path/to/startup.conf
+  ./vpp -c /path/to/this/repo/configs/startup.conf
   ```
 
   Start NGINX
 
   - refer to vcl.conf and nginx.conf provided under "configs"
-  - If you choose to use the Makefile to build automatically, the NGINX is stored in '/path/to/this/repo/_install/local/nginx'
+  - If you choose to use the Makefile to build automatically, the NGINX is stored in '/path/to/this/repo/_build/usr/local/nginx'
 
   ```
-  # export VCL_CONFIG=/path/to/vcl.conf
-  # export LD_LIBRARY_PATH=/path/to/vpp/build-root/install-vpp-native/vpp/lib
-  # /usr/local/nginx/sbin/nginx -c /path/to/nginx.conf
+  # export VCL_CONFIG=/path/to/this/repo/configs/vcl.conf
+  # export LD_LIBRARY_PATH=/path/to/this/repo/vpp/build-root/install-vpp-native/vpp/lib
+  # /path/to/this/repo/_build/usr/local/nginx/sbin/nginx -c /path/to/this/repo/configs/nginx.conf
   ```
 
 ## 3.2 LDP NGINX
@@ -160,17 +165,16 @@ This patch removes VLS session locks for saving approximately 100% CPU cycles on
 You may need root privilege.
 
 ```bash
-$ cd /path/to/vpp
-$ patch -p1 < /path/to/this/repo/vpp_patches/ldp/0001-LDP-remove-lock.patch
+$ cd /path/to/this/repo/vpp
 $ make build && make build-release
 ```
 **Start NGINX**
-If you choose to use the Makefile to build automatically, the VPP is stored in '/path/to/this/repo/_install/local/vpp'
-If you choose to use the Makefile to build automatically, the NGINX is stored in '/path/to/this/repo/_install/local/nginx'
+If you choose to use the Makefile to build automatically, the VPP is stored in '/path/to/this/repo/vpp'
+If you choose to use the Makefile to build automatically, the NGINX is stored in '/path/to/this/repo/_build/usr/local/nginx'
 
 ```bash
-$ export VCL_CONFIG=path/to/vcl.conf
-$ LD_PRELOAD=path/to/vpp/build-root/install-vpp-native/vpp/lib/libvcl_ldpreload.so /usr/local/nginx/sbin/nginx -c path/to/nginx.conf
+$ export VCL_CONFIG=path/to/this/repo/vcl.conf
+$ LD_PRELOAD=/path/to/this/repo/vpp/build-root/install-vpp-native/vpp/lib/libvcl_ldpreload.so /path/to/this/repo/_build/usr/local/nginx/sbin/nginx -c path/to/this/repo/configs/nginx.conf
 ```
 
 ## 3.3 Enable VPP TLS

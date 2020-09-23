@@ -3,21 +3,17 @@
 ngxvcl=${BR}/_build/nginx_vcl
 ngxldp=${BR}/_build/nginx_ldp
 
+tls_tcp=tls
+
 function test_vcl(){
     echo ""
     echo "===================================================================="
     echo "Testing ..."
     echo ""
     export LD_LIBRARY_PATH=/usr/local/ssl/lib
-    cp ${BR}/configs/startup.conf ${BR}/configs/startup-test.conf
 
-    sed -i 's|/var/log/vpp/vpp.log|/tmp/vpp.log|' ${BR}/configs/startup-test.conf
-    sed -i 's|cli-vpp1.sock|cli.sock|' ${BR}/configs/startup-test.conf
-    sed -i 's|/path/to/configs/vppenvset|configs/vppset|' ${BR}/configs/startup-test.conf
-    sed -i 's|socket-name /path/to/vpp-api.sock|default|' ${BR}/configs/startup-test.conf
-    echo "set int state local0 up" > ${BR}/configs/vppset
-
-    ${BR}/vpp/build-root/install-vpp-native/vpp/bin/vpp -c configs/startup-test.conf &
+    cp ${BR}/configs/vppset-test /tmp/.
+    ${BR}/vpp/build-root/install-vpp-native/vpp/bin/vpp -c ${BR}/configs/startup-test.conf &
     vpp_pid=$!
 
     sleep 5
@@ -32,9 +28,16 @@ function test_vcl(){
 
     sudo killall -v -s 9 nginx || echo "continue execute"
 
-    cp ${BR}/configs/nginx.conf ${BR}/configs/nginx-test.conf
-    sed -i 's|#worker_processes 1|worker_processes 1|' ${BR}/configs/nginx-test.conf
-
+    mdir=0
+    if [ ! -d /usr/local/nginx/logs ]; then
+        mdir=2
+        if [ ! -d /usr/local/nginx ]; then
+            mdir=1
+            fi
+    fi
+    if [ ${mdir} -ne 0 ]; then
+        mkdir -p /usr/local/nginx/logs
+    fi
     ${ngxvcl}/objs/nginx -c ${BR}/configs/nginx-test.conf &
     nginx_pid=$!
     sleep 5
@@ -60,10 +63,13 @@ function test_vcl(){
 
     sudo killall -v -s 9 nginx || echo ""
     sudo kill -9 ${vpp_pid} || echo ""
-    rm -f ${BR}/configs/nginx-test.conf
-    rm -f ${BR}/configs/startup-test.conf
-    rm -f ${BR}/configs/vppset
-    rm -f /tmp/vpp.log
+
+    rm /tmp/vppset-test
+    if [ ${mdir} -eq 1 ]; then
+        rm -rf /usr/local/nginx
+    elif [ ${mdir} -eq 2 ]; then
+        rm -rf /usr/local/nginx/logs
+    fi
 
     if [ ${ret} -eq 1 ]; then
         exit 1;
@@ -77,21 +83,23 @@ function test_ldp(){
     echo ""
 
     export LD_LIBRARY_PATH=/usr/local/ssl/lib
-    cp ${BR}/configs/startup.conf ${BR}/configs/startup-test.conf
 
-    sed -i 's|/var/log/vpp/vpp.log|/tmp/vpp.log|' ${BR}/configs/startup-test.conf
-    sed -i 's|cli-vpp1.sock|cli.sock|' ${BR}/configs/startup-test.conf
-    sed -i 's|/path/to/configs/vppenvset|configs/vppset|' ${BR}/configs/startup-test.conf
-    sed -i 's|socket-name /path/to/vpp-api.sock|default|' ${BR}/configs/startup-test.conf
-    echo "set int state local0 up" > ${BR}/configs/vppset
-
-    ${BR}/vpp/build-root/install-vpp-native/vpp/bin/vpp -c configs/startup-test.conf &
+    cp ${BR}/configs/vppset-test /tmp/.
+    ${BR}/vpp/build-root/install-vpp-native/vpp/bin/vpp -c ${BR}/configs/startup-test.conf &
     vpp_pid=$!
 
     sleep 5
 
-    cp ${BR}/configs/nginx.conf ${BR}/configs/nginx-test.conf
-    sed -i 's|#worker_processes 1|worker_processes 1|' ${BR}/configs/nginx-test.conf
+    mdir=0
+    if [ ! -d /usr/local/nginx/logs ]; then
+        mdir=2
+        if [ ! -d /usr/local/nginx ]; then
+            mdir=1
+            fi
+    fi
+    if [ ${mdir} -ne 0 ]; then
+        mkdir -p /usr/local/nginx/logs
+    fi
 
     export VCL_CONFIG=${BR}/configs/vcl.conf
     export LDP_TRANSPARENT_TLS=1
@@ -113,7 +121,6 @@ function test_ldp(){
         ret=1
     fi
 
-
     v=`ps -A|grep "${nginx_pid}" | wc -l`
     if [ ${v} -eq 1 ]; then
         echo "LDP test: nginx                                               OK"
@@ -126,10 +133,12 @@ function test_ldp(){
     sudo killall -v -s 9 nginx || echo ""
     sudo kill -9 ${vpp_pid} || echo ""
 
-    rm -f ${BR}/configs/nginx-test.conf
-    rm -f ${BR}/configs/startup-test.conf
-    rm -f ${BR}/configs/vppset
-    rm -rf /tmp/vpp.log
+    rm /tmp/vppset-test
+    if [ ${mdir} -eq 1 ]; then
+        rm -rf /usr/local/nginx
+    elif [ ${mdir} -eq 2 ]; then
+        rm -rf /usr/local/nginx/logs
+    fi
 
     if [ ${ret} -eq 1 ]; then
         exit 1

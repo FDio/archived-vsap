@@ -16,6 +16,8 @@ nginx_vcl_patch_dir          := $(CURDIR)/nginx_patches
 nginx_vcl_src_dir            := $(B)/nginx_vcl
 vpp_vcl_src_dir              := $(CURDIR)/vpp
 nginx_vcl_install_dir        := /usr/local/nginx
+nginx_vcl_tmp1_dir           := $(B)/nginx_vcl_backup1
+nginx_vcl_tmp2_dir           := $(B)/nginx_vcl_backup2
 nginx_vcl_deb_inst_dir       := /usr/local/nginx
 nginx_vcl_pkg_deb_name       := nginx
 nginx_vcl_pkg_deb_dir        := $(I)/deb-vcl
@@ -46,14 +48,15 @@ endef
 
 define  nginx_vcl_build_cmds
 	@$(MAKE) -C $(nginx_vcl_src_dir)
+        @$(MAKE) -C $(nginx_vcl_src_dir) DESTDIR=$(B) install
+        @cp configs/mime.types $(B)$(nginx_vcl_install_dir)/conf/.
+        @cp configs/nginx.conf $(B)$(nginx_vcl_install_dir)/conf/.
+        @cp configs/tls-* $(B)$(nginx_vcl_install_dir)/conf/.
+        @cp configs/vcl.conf $(B)$(nginx_vcl_install_dir)/conf/.
 endef
 
 define  nginx_vcl_install_cmds
-	@$(MAKE) -C $(nginx_vcl_src_dir) install
-	@cp configs/mime.types $(nginx_vcl_install_dir)/conf/.
-	@cp configs/nginx.conf $(nginx_vcl_install_dir)/conf/.
-	@cp configs/tls-* $(nginx_vcl_install_dir)/conf/.
-	@cp configs/vcl.conf $(nginx_vcl_install_dir)/conf/.
+	@true
 endef
 
 define nginx_vcl_pkg_deb_cmds
@@ -61,7 +64,7 @@ define nginx_vcl_pkg_deb_cmds
 		-t deb \
 		-n $(nginx_vcl_pkg_deb_name) \
 		-v $(nginx_vcl_version) \
-		-C $(nginx_vcl_install_dir) \
+		-C $(B)$(nginx_vcl_install_dir) \
 		-p $(nginx_vcl_pkg_deb_dir) \
 		--prefix $(nginx_vcl_deb_inst_dir) \
 		--license $(LICENSE) \
