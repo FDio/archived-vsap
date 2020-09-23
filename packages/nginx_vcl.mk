@@ -46,14 +46,15 @@ endef
 
 define  nginx_vcl_build_cmds
 	@$(MAKE) -C $(nginx_vcl_src_dir)
+        @$(MAKE) -C $(nginx_vcl_src_dir) install
+        @cp configs/mime.types $(nginx_vcl_install_dir)/conf/.
+        @cp configs/nginx.conf $(nginx_vcl_install_dir)/conf/.
+        @cp configs/tls-* $(nginx_vcl_install_dir)/conf/.
+        @cp configs/vcl.conf $(nginx_vcl_install_dir)/conf/.
 endef
 
 define  nginx_vcl_install_cmds
-	@$(MAKE) -C $(nginx_vcl_src_dir) install
-	@cp configs/mime.types $(nginx_vcl_install_dir)/conf/.
-	@cp configs/nginx.conf $(nginx_vcl_install_dir)/conf/.
-	@cp configs/tls-* $(nginx_vcl_install_dir)/conf/.
-	@cp configs/vcl.conf $(nginx_vcl_install_dir)/conf/.
+	@true
 endef
 
 define nginx_vcl_pkg_deb_cmds
