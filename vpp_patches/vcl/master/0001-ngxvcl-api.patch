@@ -1,0 +1,1698 @@
+From e4d25bd08881a6805faa4d3a4716e84f48c0540c Mon Sep 17 00:00:00 2001
+From: "xiaolongx.jiang" <xiaolongx.jiang@intel.com>
+Date: Mon, 21 Sep 2020 13:19:21 +0800
+Subject: [PATCH] ngxvcl api
+
+Signed-off-by: xiaolongx.jiang <xiaolongx.jiang@intel.com>
+---
+ src/vcl/CMakeLists.txt |   10 +-
+ src/vcl/ngxvcl.c       | 1574 ++++++++++++++++++++++++++++++++++++++++
+ src/vcl/ngxvcl.h       |   70 ++
+ 3 files changed, 1653 insertions(+), 1 deletion(-)
+ create mode 100644 src/vcl/ngxvcl.c
+ create mode 100644 src/vcl/ngxvcl.h
+
+diff --git a/src/vcl/CMakeLists.txt b/src/vcl/CMakeLists.txt
+index e6d8f98ff..8a878f49f 100644
+--- a/src/vcl/CMakeLists.txt
++++ b/src/vcl/CMakeLists.txt
+@@ -39,10 +39,18 @@ add_vpp_library(vcl_ldpreload
+   vppinfra svm vlibmemoryclient rt pthread vppcom dl
+ )
+ 
++add_vpp_library(ngxvcl
++  SOURCES
++  ngxvcl.c
++
++  LINK_LIBRARIES
++  vppinfra svm vlibmemoryclient rt pthread vppcom dl
++)
++
+ add_vpp_headers(vcl
+   ldp.h
+   ldp_glibc_socket.h
+   vppcom.h
+   vcl_locked.h
+   ldp_socket_wrapper.h
+-)
+\ No newline at end of file
++)
+diff --git a/src/vcl/ngxvcl.c b/src/vcl/ngxvcl.c
+new file mode 100644
+index 000000000..8cfa6ba8f
+--- /dev/null
++++ b/src/vcl/ngxvcl.c
+@@ -0,0 +1,1574 @@
++#include <vcl/ngxvcl.h>
++#include <vcl/vcl_private.h>
++
++#define MAX_NGX_WORKERS 100
++#define VFD_OFFSET 0X003F3F3F
++#define NGXVCL_TLS_ON "NGXVCL_TLS_ON"
++#define NGXVCL_TLS_CERT "NGXVCL_TLS_CERT"
++#define NGXVCL_TLS_KEY "NGXVCL_TLS_KEY"
++
++typedef unsigned char u8;
++typedef unsigned short u16;
++typedef unsigned int u32;
++
++typedef struct ngxvcl_main_t_
++{
++  u32 listen_session_index;
++  u32 master_worker_index;
++  /** Not include master worker index. */
++  u32 *workers_subscribed_by_ls;
++  clib_bitmap_t *listeners;
++  uword *worker_index_by_pid;
++  int wait_vep_only;
++  int intercepted_sigchld;
++  u8 transparent_tls;
++} ngxvcl_main_t;
++
++static ngxvcl_main_t *nvm = NULL;
++
++static u8 *sendfile_io_buffer = NULL;
++
++static int epoll_fd_for_evtfd = 0;
++
++static u8 use_mq_eventfd = 0;
++
++static int wait_kep_next = 0;
++
++static inline _Bool is_offset_vfd(int fd)
++{
++    return fd >= VFD_OFFSET;
++}
++static inline int vfd_to_offset_vfd(int vfd)
++{
++    return vfd + VFD_OFFSET;
++}
++static inline int offset_vfd_to_vfd(int offset_fd)
++{
++    int vfd = offset_fd - VFD_OFFSET;
++
++    return (vcl_get_worker_index () << 24) | (vfd & 0X00FFFFFF);
++}
++
++static int copy_ep_to_sockaddr(struct sockaddr *addr, socklen_t *len,
++                                      vppcom_endpt_t *ep)
++{
++    int rv = 0;
++    int sa_len, copy_len;
++
++    if (addr && len && ep)
++    {
++        addr->sa_family = (ep->is_ip4 == VPPCOM_IS_IP4) ? AF_INET : AF_INET6;
++
++        switch (addr->sa_family)
++        {
++        case AF_INET:
++            ((struct sockaddr_in *)addr)->sin_port = ep->port;
++            if (*len > sizeof(struct sockaddr_in))
++                *len = sizeof(struct sockaddr_in);
++            sa_len = sizeof(struct sockaddr_in) - sizeof(struct in_addr);
++            copy_len = *len - sa_len;
++            if (copy_len > 0)
++                memcpy(&((struct sockaddr_in *)addr)->sin_addr, ep->ip,
++                       copy_len);
++            break;
++
++        case AF_INET6:
++            ((struct sockaddr_in6 *)addr)->sin6_port = ep->port;
++            if (*len > sizeof(struct sockaddr_in6))
++                *len = sizeof(struct sockaddr_in6);
++            sa_len = sizeof(struct sockaddr_in6) - sizeof(struct in6_addr);
++            copy_len = *len - sa_len;
++            if (copy_len > 0)
++                memcpy(
++                    ((struct sockaddr_in6 *)addr)->sin6_addr.__in6_u.__u6_addr8,
++                    ep->ip, copy_len);
++            break;
++
++        default:
++            /* Not possible */
++            rv = -EAFNOSUPPORT;
++            break;
++        }
++    }
++
++    return rv;
++}
++
++static void listener_wrk_stop_listen(u32 wrk_index) {
++    vcl_worker_t *wrk;
++    vcl_session_t *s;
++
++    wrk = vcl_worker_get(wrk_index);
++    s = vcl_session_get (wrk, nvm->listen_session_index);
++    if (s->session_state != VCL_STATE_LISTEN)
++        return;
++    vcl_send_session_unlisten(wrk, s);
++    s->session_state = VCL_STATE_LISTEN_NO_MQ;
++    clib_bitmap_set(nvm->listeners, wrk_index, 0);
++}
++
++static void
++share_listen_session (vcl_worker_t * wrk)
++{
++    vcl_session_t *s;
++
++    s = vcl_session_get (wrk, nvm->listen_session_index);
++    s->session_state = VCL_STATE_LISTEN_NO_MQ;
++    vppcom_session_listen((vcl_get_worker_index() << 24 | nvm->listen_session_index), ~0);
++    clib_bitmap_set(nvm->listeners, vcl_get_worker_index(), 1);
++    if (clib_bitmap_get(nvm->listeners, 0) == 1)
++        listener_wrk_stop_listen (0);
++    vec_add1 (nvm->workers_subscribed_by_ls, wrk->wrk_index);
++}
++
++static void
++worker_copy_on_fork (vcl_worker_t * parent_wrk)
++{
++  vcl_worker_t *wrk = vcl_worker_get_current ();
++
++  wrk->vpp_event_queues = vec_dup (parent_wrk->vpp_event_queues);
++  wrk->sessions = pool_dup (parent_wrk->sessions);
++  wrk->session_index_by_vpp_handles =
++    hash_dup (parent_wrk->session_index_by_vpp_handles);
++
++  share_listen_session (wrk);
++}
++
++static void
++ngxvcl_cleanup_child_worker (u32 child_wrk_index)
++{
++  vcl_worker_t *child_wrk = vcl_worker_get(child_wrk_index);
++  vcl_session_t *s;
++
++  /** Unshare listen session. */
++  s = vcl_session_get (child_wrk, nvm->listen_session_index);
++  clib_bitmap_set (nvm->listeners, child_wrk_index, 0);
++  vec_del1 (nvm->workers_subscribed_by_ls, child_wrk_index);
++  vcl_session_cleanup (child_wrk, s, vcl_session_handle (s), 1);
++
++  hash_unset (nvm->worker_index_by_pid, child_wrk->current_pid);
++  vcl_worker_cleanup (child_wrk, 1 /* notify vpp */);
++}
++
++static struct sigaction old_sa;
++
++static void
++ngxvcl_intercept_sigchld_handler (int signum, siginfo_t * si, void *uc)
++{
++  vcl_worker_t *wrk;
++  u32 child_wrk_index;
++
++  if (vcl_get_worker_index () == ~0)
++    return;
++
++  if (sigaction (SIGCHLD, &old_sa, 0))
++    {
++      VERR ("couldn't restore sigchld");
++      exit (-1);
++    }
++
++  wrk = vcl_worker_get_current ();
++  child_wrk_index = *(hash_get (nvm->worker_index_by_pid, si->si_pid));
++
++  if (si->si_pid != vcl_worker_get(child_wrk_index)->current_pid)
++    {
++      VDBG (0, "unexpected child pid %u", si->si_pid);
++      goto done;
++    }
++
++  ngxvcl_cleanup_child_worker (child_wrk_index);
++  wrk->forked_child = ~0;
++
++done:
++  if (old_sa.sa_flags & SA_SIGINFO)
++    {
++      void (*fn) (int, siginfo_t *, void *) = old_sa.sa_sigaction;
++      fn (signum, si, uc);
++    }
++  else
++    {
++      void (*fn) (int) = old_sa.sa_handler;
++      if (fn)
++	fn (signum);
++    }
++}
++
++static void
++ngxvcl_incercept_sigchld ()
++{
++  if (!nvm->intercepted_sigchld)
++  {
++    struct sigaction sa;
++    clib_memset (&sa, 0, sizeof (sa));
++    sa.sa_sigaction = ngxvcl_intercept_sigchld_handler;
++    sa.sa_flags = SA_SIGINFO;
++    if (sigaction (SIGCHLD, &sa, &old_sa))
++      {
++        VERR ("couldn't intercept sigchld");
++        exit (-1);
++      }
++    nvm->intercepted_sigchld = 1;
++  }
++}
++
++static void
++app_pre_fork (void)
++{
++  ngxvcl_incercept_sigchld ();
++  vcl_flush_mq_events ();
++}
++
++static void
++app_fork_parent_handler (void)
++{
++  vcm->forking = 1;
++  while (vcm->forking)
++    ;
++}
++
++static void
++app_fork_child_handler (void)
++{
++  vcl_worker_t *parent_wrk;
++  int parent_wrk_index;
++
++  parent_wrk_index = vcl_get_worker_index ();
++  VDBG (0, "initializing forked child %u with parent wrk %u", getpid (),
++  parent_wrk_index);
++
++  vcl_set_worker_index (~0);
++
++  /*
++   * Register worker with vpp and share listen session
++   */
++  if (vppcom_worker_register ())
++  {
++     VDBG (0, "couldn't register new worker!");
++     return;
++  }
++
++  parent_wrk = vcl_worker_get (parent_wrk_index);
++  worker_copy_on_fork (parent_wrk);
++  hash_set(nvm->worker_index_by_pid, getpid(), vcl_get_worker_index());
++  parent_wrk->forked_child = vcl_get_worker_index ();
++
++  sendfile_io_buffer = NULL;
++
++  VDBG (0, "forked child main worker initialized");
++  vcm->forking = 0;
++}
++
++static void
++sendfile_io_buffer_free (void)
++{
++  vec_free (sendfile_io_buffer);
++}
++
++void ngxvcl_wait_vep_only()
++{
++    if (use_mq_eventfd)
++        return;
++    nvm->wait_vep_only = 1;
++}
++
++void ngxvcl_wait_kep_and_vep()
++{
++    if (use_mq_eventfd)
++        return;
++    nvm->wait_vep_only = 0;
++}
++
++void ngxvcl_app_create(char *app_name)
++{
++    int rv = vppcom_app_create(app_name);
++
++    if (rv)
++    {
++        errno = -rv;
++        perror("ERROR when calling ngxvcl_app_create()!");
++        fprintf(stderr, "\nERROR: ngxvcl_app_create() failed (errno = %d)!\n", -rv);
++        exit(1);
++    }
++
++    pthread_atfork(app_pre_fork, app_fork_parent_handler,
++                   app_fork_child_handler);
++    atexit(sendfile_io_buffer_free);
++
++    nvm = clib_mem_alloc (sizeof (ngxvcl_main_t));
++    if (!nvm)
++    {
++      clib_warning ("NgxVCL<%d>: ERROR: clib_mem_alloc() failed!", getpid ());
++      ASSERT (nvm);
++      return;
++    }
++    clib_memset(nvm, 0, sizeof(ngxvcl_main_t));
++    clib_bitmap_validate(nvm->listeners, MAX_NGX_WORKERS + 1);
++    clib_bitmap_set(nvm->listeners, vcl_get_worker_index(), 1);
++    hash_set(nvm->worker_index_by_pid, getpid(), vcl_get_worker_index());
++
++    if (getenv (NGXVCL_TLS_ON))
++        nvm->transparent_tls = 1;
++
++    use_mq_eventfd = vcm->cfg.use_mq_eventfd;
++}
++
++void ngxvcl_app_destroy(void)
++{
++    vec_free(nvm->workers_subscribed_by_ls);
++    clib_bitmap_free(nvm->listeners);
++    hash_free(nvm->worker_index_by_pid);
++    clib_mem_free(nvm);
++    vppcom_app_destroy();
++}
++
++static int
++ngxvcl_load_tls_cert (uint32_t sh)
++{
++  char *env_var_str = getenv (NGXVCL_TLS_CERT);
++  char inbuf[4096];
++  char *tls_cert;
++  int cert_size;
++  FILE *fp;
++
++  if (env_var_str)
++    {
++      fp = fopen (env_var_str, "r");
++      if (fp == NULL)
++	{
++	  VDBG (0, "ERROR: failed to open cert file %s \n", env_var_str);
++	  return -1;
++	}
++      cert_size = fread (inbuf, sizeof (char), sizeof (inbuf), fp);
++      tls_cert = inbuf;
++      vppcom_session_tls_add_cert (sh, tls_cert,
++				   cert_size);
++      fclose (fp);
++    }
++  else
++    {
++      VDBG (0, "ERROR: failed to read LDP environment %s\n",
++	    NGXVCL_TLS_CERT);
++      return -1;
++    }
++  return 0;
++}
++
++static int
++ngxvcl_load_tls_key (uint32_t sh)
++{
++  char *env_var_str = getenv (NGXVCL_TLS_KEY);
++  char inbuf[4096];
++  char *tls_key;
++  int key_size;
++  FILE *fp;
++
++  if (env_var_str)
++    {
++      fp = fopen (env_var_str, "r");
++      if (fp == NULL)
++	{
++	  VDBG (0, "ERROR: failed to open key file %s \n", env_var_str);
++	  return -1;
++	}
++      key_size = fread (inbuf, sizeof (char), sizeof (inbuf), fp);
++      tls_key = inbuf;
++      vppcom_session_tls_add_key (sh, tls_key,
++				  key_size);
++      fclose (fp);
++    }
++  else
++    {
++      VDBG (0, "ERROR: failed to read NGXVCL environment %s\n", NGXVCL_TLS_KEY);
++      return -1;
++    }
++  return 0;
++}
++
++int ngxvcl_socket(int domain, int type, int protocol)
++{
++    int rv, sock_type = type & ~(SOCK_CLOEXEC | SOCK_NONBLOCK);
++    u8 is_nonblocking = type & SOCK_NONBLOCK ? 1 : 0;
++
++    if (((domain == AF_INET) || (domain == AF_INET6)) &&
++        ((sock_type == SOCK_STREAM) || (sock_type == SOCK_DGRAM)))
++    {
++        u8 proto;
++
++        if (nvm->transparent_tls)
++            proto = VPPCOM_PROTO_TLS;
++        else
++            proto = ((sock_type == SOCK_DGRAM) ? VPPCOM_PROTO_UDP : VPPCOM_PROTO_TCP);
++
++        rv = vppcom_session_create(proto, is_nonblocking);
++
++        if (rv < 0)
++        {
++            errno = -rv;
++            rv = -1;
++        }
++        else {
++            if (nvm->transparent_tls)
++                if (ngxvcl_load_tls_cert (rv) < 0 || ngxvcl_load_tls_key (rv) < 0)
++                    return -1;
++
++            rv = vfd_to_offset_vfd(rv);
++        }
++    }
++    else
++    {
++        rv = -1;
++    }
++
++    return rv;
++}
++
++int ngxvcl_close(int offset_vfd)
++{
++    int rv, epfd, vfd = offset_vfd_to_vfd(offset_vfd);
++
++    epfd = vppcom_session_attr(vfd, VPPCOM_ATTR_GET_LIBC_EPFD, 0, 0);
++    if (epfd > 0) {
++        rv = close(epfd);
++        if (rv < 0) {
++            u32 size = sizeof(epfd);
++            epfd = 0;
++            vppcom_session_attr(vfd, VPPCOM_ATTR_SET_LIBC_EPFD, &epfd, &size);
++        }
++    }
++    else if (epfd < 0) {
++        errno = -epfd;
++        rv = -1;
++        return rv;
++    }
++
++    rv = vppcom_session_close(offset_vfd_to_vfd(offset_vfd));
++
++    if (rv != VPPCOM_OK)
++    {
++        errno = -rv;
++        rv = -1;
++    }
++
++    return rv;
++}
++
++int ngxvcl_kvfd_close(int fd)
++{
++    int rv;
++
++    if (is_offset_vfd(fd))
++        rv = ngxvcl_close(fd);
++    else
++        rv = close(fd);
++
++    return rv;
++}
++
++int ngxvcl_bind(int offset_vfd, const struct sockaddr *addr, socklen_t addrlen)
++{
++    int rv;
++    vppcom_endpt_t ep;
++
++    switch (addr->sa_family)
++    {
++    case AF_INET:
++        if (addrlen != sizeof(struct sockaddr_in))
++        {
++            errno = EINVAL;
++            rv = -1;
++            goto done;
++        }
++        ep.is_ip4 = VPPCOM_IS_IP4;
++        ep.ip = (u8 *)&((const struct sockaddr_in *)addr)->sin_addr;
++        ep.port = (u16)((const struct sockaddr_in *)addr)->sin_port;
++        break;
++    case AF_INET6:
++        if (addrlen != sizeof(struct sockaddr_in6))
++        {
++            errno = EINVAL;
++            rv = -1;
++            goto done;
++        }
++        ep.is_ip4 = VPPCOM_IS_IP6;
++        ep.ip = (u8 *)&((const struct sockaddr_in6 *)addr)->sin6_addr;
++        ep.port = (u16)((const struct sockaddr_in6 *)addr)->sin6_port;
++        break;
++    default:
++        errno = EAFNOSUPPORT;
++        rv = -1;
++        goto done;
++    }
++
++    rv = vppcom_session_bind(offset_vfd_to_vfd(offset_vfd), &ep);
++
++    if (rv != VPPCOM_OK)
++    {
++        errno = -rv;
++        rv = -1;
++        goto done;
++    }
++
++    nvm->master_worker_index = offset_vfd_to_vfd(offset_vfd) >> 24;
++    nvm->listen_session_index = offset_vfd_to_vfd(offset_vfd) & 0X00FFFFFF;
++
++done:
++    return rv;
++}
++
++int ngxvcl_listen(int offset_vfd, int backlog)
++{
++    int rv;
++
++    ASSERT((u32)(offset_vfd_to_vfd(offset_vfd) & 0X00FFFFFF) == nvm->listen_session_index);
++
++    rv = vppcom_session_listen(offset_vfd_to_vfd(offset_vfd), backlog);
++
++    if (rv != VPPCOM_OK)
++    {
++        errno = -rv;
++        rv = -1;
++    }
++
++    return rv;
++}
++
++int ngxvcl_accept4(int offset_vfd, struct sockaddr *addr, socklen_t *addrlen,
++                   int flags)
++{
++    int accepted_fd, rv;
++    vppcom_endpt_t ep;
++    u8 src_addr[sizeof(struct sockaddr_in6)];
++    memset(&ep, 0, sizeof(ep));
++    ep.ip = src_addr;
++
++    accepted_fd = vppcom_session_accept(offset_vfd_to_vfd(offset_vfd), &ep, flags);
++
++    if (accepted_fd < 0)
++    {
++        errno = -accepted_fd;
++        rv = -1;
++    }
++    else
++    {
++        rv = copy_ep_to_sockaddr(addr, addrlen, &ep);
++
++        if (rv != VPPCOM_OK)
++        {
++            (void)vppcom_session_close(accepted_fd);
++            errno = -rv;
++            rv = -1;
++        }
++        else
++        {
++            rv = vfd_to_offset_vfd(accepted_fd);
++        }
++    }
++
++    return rv;
++}
++
++int ngxvcl_accept(int offset_vfd, struct sockaddr *addr, socklen_t *addrlen)
++{
++    return ngxvcl_accept4(offset_vfd, addr, addrlen, 0);
++}
++
++int ngxvcl_connect(int offset_vfd, const struct sockaddr *addr, socklen_t addrlen)
++{
++    int rv;
++
++    if (!addr)
++    {
++        errno = EINVAL;
++        rv = -1;
++        goto done;
++    }
++
++    vppcom_endpt_t ep;
++
++    switch (addr->sa_family)
++    {
++    case AF_INET:
++        if (addrlen != sizeof(struct sockaddr_in))
++        {
++            errno = EINVAL;
++            rv = -1;
++            goto done;
++        }
++        ep.is_ip4 = VPPCOM_IS_IP4;
++        ep.ip = (u8 *)&((const struct sockaddr_in *)addr)->sin_addr;
++        ep.port = (u16)((const struct sockaddr_in *)addr)->sin_port;
++        break;
++    case AF_INET6:
++        if (addrlen != sizeof(struct sockaddr_in6))
++        {
++            errno = EINVAL;
++            rv = -1;
++            goto done;
++        }
++        ep.is_ip4 = VPPCOM_IS_IP6;
++        ep.ip = (u8 *)&((const struct sockaddr_in6 *)addr)->sin6_addr;
++        ep.port = (u16)((const struct sockaddr_in6 *)addr)->sin6_port;
++        break;
++    default:
++        errno = EAFNOSUPPORT;
++        rv = -1;
++        goto done;
++    }
++
++    rv = vppcom_session_connect(offset_vfd_to_vfd(offset_vfd), &ep);
++
++    if (rv != VPPCOM_OK)
++    {
++        errno = -rv;
++        rv = -1;
++    }
++
++done:
++    return rv;
++}
++
++int ngxvcl_read(int offset_vfd, void *buf, size_t count)
++{
++    ssize_t size;
++
++    size = vppcom_session_read(offset_vfd_to_vfd(offset_vfd), buf, count);
++
++    if (size < 0)
++    {
++        errno = -size;
++        size = -1;
++    }
++
++    return size;
++}
++
++int ngxvcl_write(int offset_vfd, const void *buf, size_t count)
++{
++    ssize_t size = 0;
++
++    size = vppcom_session_write_msg(offset_vfd_to_vfd(offset_vfd), (void *)buf, count);
++
++    if (size < 0)
++    {
++        errno = -size;
++        size = -1;
++    }
++
++    return size;
++}
++
++int ngxvcl_epoll_create(int size)
++{
++    int rv, vepfd;
++
++    rv = vppcom_epoll_create();
++
++    if (rv < 0)
++    {
++        errno = -rv;
++        return -1;
++    }
++    else
++        vepfd = rv;
++
++    if (use_mq_eventfd) {
++        int libc_epfd;
++        u32 size = sizeof (u32);
++        struct epoll_event e = { 0 };
++
++        libc_epfd = epoll_create1 (EPOLL_CLOEXEC);
++        if (libc_epfd < 0)
++            return libc_epfd;
++        rv = vppcom_session_attr (vepfd, VPPCOM_ATTR_SET_LIBC_EPFD, &libc_epfd, &size);
++        if (rv < 0)
++        {
++            errno = -rv;
++            return -1;
++        }
++        e.events = EPOLLIN;
++        if (epoll_ctl (libc_epfd, EPOLL_CTL_ADD, vcl_worker_get_current ()->app_event_queue->q->consumer_evtfd, &e) < 0)
++            return -1;
++        epoll_fd_for_evtfd = libc_epfd;
++    }
++
++    return vfd_to_offset_vfd (vepfd);
++}
++
++int ngxvcl_kvfd_epoll_ctl(int offset_vepfd, int op, int fd, struct epoll_event *event)
++{
++    int rv, vepfd = offset_vfd_to_vfd(offset_vepfd);
++
++    if (is_offset_vfd(fd)) {
++        rv = vppcom_epoll_ctl(vepfd, op, offset_vfd_to_vfd(fd),
++                              event);
++
++        if (rv != VPPCOM_OK)
++        {
++            errno = -rv;
++            rv = -1;
++        }
++    }
++    else {
++        int libc_epfd;
++        u32 size = sizeof (vepfd);
++
++        libc_epfd = vppcom_session_attr (vepfd, VPPCOM_ATTR_GET_LIBC_EPFD, 0, 0);
++        if (!libc_epfd) {
++            libc_epfd = epoll_create1 (EPOLL_CLOEXEC);
++            if (libc_epfd < 0)
++            {
++                rv = libc_epfd;
++                return rv;
++            }
++            rv = vppcom_session_attr (vepfd, VPPCOM_ATTR_SET_LIBC_EPFD, &libc_epfd, &size);
++            if (rv < 0)
++            {
++                errno = -rv;
++                rv = -1;
++                return rv;
++            }
++        }
++        else if (libc_epfd < 0) {
++            errno = -vepfd;
++	        rv = -1;
++            return rv;
++        }
++
++        rv = epoll_ctl (libc_epfd, op, fd, event);
++    }
++
++    return rv;
++}
++
++int ngxvcl_kvfd_epoll_wait(int offset_vepfd, struct epoll_event *events, int maxevents,
++                           int timeout)
++{
++    int rv = 0, vepfd = offset_vfd_to_vfd (offset_vepfd);
++
++    if (use_mq_eventfd) {
++        int i, n_evts = 0, veprv;
++        struct epoll_event temp_evts[2];
++
++again:
++        rv = epoll_wait (epoll_fd_for_evtfd, temp_evts, 2, timeout);
++
++        if (PREDICT_TRUE (rv > 0))
++            for (i = 0; i < rv; i++) {
++                if (PREDICT_FALSE (n_evts == maxevents))
++                    return n_evts;
++                if (PREDICT_TRUE (temp_evts[i].data.u32 == 0)) {
++                    veprv = vppcom_epoll_wait(vepfd, events + n_evts, maxevents - n_evts, 0);
++                    if (PREDICT_FALSE (veprv < 0)) {
++                        errno = -veprv;
++                        return -1;
++                    }
++                    n_evts += veprv;
++                }
++                else {
++                    events[n_evts] = temp_evts[i];
++                    n_evts += 1;
++                }
++            }
++
++        if (PREDICT_FALSE (!n_evts && rv > 0))
++            goto again;
++
++        return n_evts;
++    }
++
++    if (nvm->wait_vep_only)
++    {
++        rv = vppcom_epoll_wait(vepfd, events, maxevents, timeout);
++
++        if (rv < 0)
++        {
++            errno = -rv;
++            rv = -1;
++        }
++
++        return rv;
++    }
++    else
++    {
++        double time_to_wait = (double) 0, max_time;
++        int libc_epfd;
++        clib_time_t clib_time = {};
++
++        if (clib_time.init_cpu_time == 0)
++            clib_time_init (&clib_time);
++        time_to_wait = ((timeout >= 0) ? (double) timeout / 1000 : 0);
++        max_time = clib_time_now (&clib_time) + time_to_wait;
++
++        libc_epfd = vppcom_session_attr (vepfd, VPPCOM_ATTR_GET_LIBC_EPFD, 0, 0);
++        if (libc_epfd < 0)
++        {
++            errno = -libc_epfd;
++            rv = -1;
++            return rv;
++        }
++
++        do {
++            if (nvm->wait_vep_only) {
++                int time_remained = 0;
++                if (timeout > 0) {
++                    time_remained = (int)(1000 * (max_time - clib_time_now (&clib_time)));
++                }
++                else
++                    time_remained = timeout;
++                rv = vppcom_epoll_wait(vepfd, events, maxevents, time_remained);
++                if (rv < 0)
++                {
++                    errno = -rv;
++                    rv = -1;
++                }
++                return rv;
++            }
++
++            if (!wait_kep_next)
++            {
++                rv = vppcom_epoll_wait(vepfd, events, maxevents, 0);
++
++                if (rv < 0)
++                {
++                    errno = -rv;
++                    rv = -1;
++                    return rv;
++                }
++                else if (rv > 0)
++                {
++                    wait_kep_next = 1;
++                    return rv;
++                }
++            }
++            else
++                wait_kep_next = 0;
++
++            if (libc_epfd > 0) {
++                rv = epoll_wait(libc_epfd, events, maxevents, 0);
++                if (rv != 0)
++                    return rv;
++            }
++        } while ((timeout == -1) || (clib_time_now (&clib_time) < max_time));
++
++        return rv;
++    }
++}
++
++ssize_t ngxvcl_readv(int offset_vfd, const struct iovec *iov, int iovcnt)
++{
++    int rv = 0, i, total = 0;
++    ssize_t size = 0;
++
++    do
++    {
++        for (i = 0; i < iovcnt; ++i)
++        {
++            rv = vppcom_session_read(offset_vfd_to_vfd(offset_vfd), iov[i].iov_base,
++                                     iov[i].iov_len);
++            if (rv < 0)
++                break;
++            else
++            {
++                total += rv;
++                if ((size_t)rv < iov[i].iov_len)
++                    break;
++            }
++        }
++    } while ((rv >= 0) && (total == 0));
++
++    if (rv < 0)
++    {
++        errno = -rv;
++        size = -1;
++    }
++    else
++        size = total;
++
++    return size;
++}
++
++ssize_t ngxvcl_writev(int offset_vfd, const struct iovec *iov, int iovcnt)
++{
++    ssize_t size = 0, total = 0;
++    int i, rv = 0;
++
++    do
++    {
++        for (i = 0; i < iovcnt; ++i)
++        {
++            rv = vppcom_session_write_msg(offset_vfd_to_vfd(offset_vfd),
++                                          iov[i].iov_base, iov[i].iov_len);
++            if (rv < 0)
++                break;
++            else
++            {
++                total += rv;
++                if ((size_t)rv < iov[i].iov_len)
++                    break;
++            }
++        }
++    } while ((rv >= 0) && (total == 0));
++
++    if (rv < 0)
++    {
++        errno = -rv;
++        size = -1;
++    }
++    else
++        size = total;
++
++    return size;
++}
++
++int ngxvcl_kvfd_fcntl(int fd, int cmd, ...)
++{
++    int rv = 0;
++    va_list ap;
++
++    va_start(ap, cmd);
++
++    if (is_offset_vfd(fd))
++    {
++        int flags = va_arg(ap, int), vfd = offset_vfd_to_vfd(fd);
++        u32 size;
++
++        size = sizeof(flags);
++        rv = -EOPNOTSUPP;
++
++        switch (cmd)
++        {
++        case F_SETFL:
++            rv = vppcom_session_attr(vfd, VPPCOM_ATTR_SET_FLAGS, &flags, &size);
++            break;
++        case F_GETFL:
++            rv = vppcom_session_attr(vfd, VPPCOM_ATTR_GET_FLAGS, &flags, &size);
++            if (rv == VPPCOM_OK)
++                rv = flags;
++            break;
++        case F_SETFD:
++            /* TODO handle this */
++            rv = 0;
++            break;
++        default:
++            rv = -EOPNOTSUPP;
++            break;
++        }
++
++        if (rv < 0)
++        {
++            errno = -rv;
++            rv = -1;
++        }
++    }
++    else
++    {
++        long int args[4];
++
++        for (int i = 0; i < 4; i++)
++            args[i] = va_arg(ap, long int);
++
++        rv = fcntl(fd, cmd, args[0], args[1], args[2], args[3]);
++    }
++
++    va_end(ap);
++
++    return rv;
++}
++
++int ngxvcl_kvfd_ioctl(int fd, unsigned long int cmd, ...)
++{
++    va_list ap;
++    int rv;
++
++    va_start(ap, cmd);
++
++    if (is_offset_vfd(fd))
++    {
++        int vfd = offset_vfd_to_vfd(fd);
++
++        switch (cmd)
++        {
++        case FIONREAD:
++            rv = vppcom_session_attr(vfd, VPPCOM_ATTR_GET_NREAD, 0, 0);
++            break;
++
++        case FIONBIO:
++        {
++            u32 flags = va_arg(ap, int) ? O_NONBLOCK : 0;
++            u32 size = sizeof(flags);
++
++            /* TBD: When VPPCOM_ATTR_[GS]ET_FLAGS supports flags other than
++             *      non-blocking, the flags should be read here and merged
++             *      with O_NONBLOCK.
++             */
++            rv = vppcom_session_attr(vfd, VPPCOM_ATTR_SET_FLAGS, &flags, &size);
++        }
++        break;
++
++        default:
++            rv = -EOPNOTSUPP;
++            break;
++        }
++
++        if (rv < 0)
++        {
++            errno = -rv;
++            rv = -1;
++        }
++    }
++    else
++    {
++        long int args[4];
++
++        for (int i = 0; i < 4; i++)
++            args[i] = va_arg(ap, long int);
++
++        rv = ioctl(fd, cmd, args[0], args[1], args[2], args[3]);
++    }
++
++    va_end(ap);
++
++    return rv;
++}
++
++int ngxvcl_socketpair(int domain, int type, int protocol, int fds[2])
++{
++    int rv, sock_type = type & ~(SOCK_CLOEXEC | SOCK_NONBLOCK);
++
++    if (((domain == AF_INET) || (domain == AF_INET6)) &&
++        ((sock_type == SOCK_STREAM) || (sock_type == SOCK_DGRAM)))
++    {
++        errno = ENOSYS;
++        rv = -1;
++    }
++    else
++    {
++        rv = socketpair(domain, type, protocol, fds);
++    }
++
++    return rv;
++}
++
++int ngxvcl_kvfd_getsockname(int fd, struct sockaddr *addr, socklen_t *len)
++{
++    int rv;
++
++    if (is_offset_vfd(fd))
++    {
++        vppcom_endpt_t ep;
++        u8 addr_buf[sizeof(struct in6_addr)];
++        u32 size = sizeof(ep);
++
++        ep.ip = addr_buf;
++
++        rv = vppcom_session_attr(offset_vfd_to_vfd(fd),
++                                 VPPCOM_ATTR_GET_LCL_ADDR, &ep, &size);
++
++        if (rv != VPPCOM_OK)
++        {
++            errno = -rv;
++            rv = -1;
++        }
++        else
++        {
++            rv = copy_ep_to_sockaddr(addr, len, &ep);
++
++            if (rv != VPPCOM_OK)
++            {
++                errno = -rv;
++                rv = -1;
++            }
++        }
++    }
++    else
++    {
++        rv = getsockname(fd, addr, len);
++    }
++
++    return rv;
++}
++
++int ngxvcl_kvfd_getsockopt(int fd, int level, int optname, void *optval,
++                           socklen_t *optlen)
++{
++    int rv;
++
++    if (is_offset_vfd(fd))
++    {
++        int vfd = offset_vfd_to_vfd(fd);
++
++        rv = -EOPNOTSUPP;
++
++        switch (level)
++        {
++        case SOL_TCP:
++            switch (optname)
++            {
++            case TCP_NODELAY:
++                rv = vppcom_session_attr(vfd, VPPCOM_ATTR_GET_TCP_NODELAY,
++                                         optval, optlen);
++                break;
++            case TCP_MAXSEG:
++                rv = vppcom_session_attr(vfd, VPPCOM_ATTR_GET_TCP_USER_MSS,
++                                         optval, optlen);
++                break;
++            case TCP_KEEPIDLE:
++                rv = vppcom_session_attr(vfd, VPPCOM_ATTR_GET_TCP_KEEPIDLE,
++                                         optval, optlen);
++                break;
++            case TCP_KEEPINTVL:
++                rv = vppcom_session_attr(vfd, VPPCOM_ATTR_GET_TCP_KEEPINTVL,
++                                         optval, optlen);
++                break;
++            case TCP_INFO:
++                if (optval && optlen && (*optlen == sizeof(struct tcp_info)))
++                {
++                    memset(optval, 0, *optlen);
++                    rv = VPPCOM_OK;
++                }
++                else
++                    rv = -EFAULT;
++                break;
++            case TCP_CONGESTION:
++                strcpy(optval, "cubic");
++                *optlen = strlen("cubic");
++                rv = 0;
++                break;
++            default:
++                break;
++            }
++            break;
++        case SOL_IPV6:
++            switch (optname)
++            {
++            case IPV6_V6ONLY:
++                rv =
++                    vppcom_session_attr(vfd, VPPCOM_ATTR_GET_V6ONLY,
++                                        optval, optlen);
++                break;
++            default:
++                break;
++            }
++            break;
++        case SOL_SOCKET:
++            switch (optname)
++            {
++            case SO_ACCEPTCONN:
++                rv = vppcom_session_attr(vfd, VPPCOM_ATTR_GET_LISTEN,
++                                         optval, optlen);
++                break;
++            case SO_KEEPALIVE:
++                rv = vppcom_session_attr(vfd, VPPCOM_ATTR_GET_KEEPALIVE,
++                                         optval, optlen);
++                break;
++            case SO_PROTOCOL:
++                rv = vppcom_session_attr(vfd, VPPCOM_ATTR_GET_PROTOCOL,
++                                         optval, optlen);
++                *(int *)optval = *(int *)optval ? SOCK_DGRAM : SOCK_STREAM;
++                break;
++            case SO_SNDBUF:
++                rv = vppcom_session_attr(vfd, VPPCOM_ATTR_GET_TX_FIFO_LEN,
++                                         optval, optlen);
++                break;
++            case SO_RCVBUF:
++                rv = vppcom_session_attr(vfd, VPPCOM_ATTR_GET_RX_FIFO_LEN,
++                                         optval, optlen);
++                break;
++            case SO_REUSEADDR:
++                rv = vppcom_session_attr(vfd, VPPCOM_ATTR_GET_REUSEADDR,
++                                         optval, optlen);
++                break;
++            case SO_BROADCAST:
++                rv = vppcom_session_attr(vfd, VPPCOM_ATTR_GET_BROADCAST,
++                                         optval, optlen);
++                break;
++            case SO_ERROR:
++                rv = vppcom_session_attr(vfd, VPPCOM_ATTR_GET_ERROR,
++                                         optval, optlen);
++                break;
++            default:
++                break;
++            }
++            break;
++        default:
++            break;
++        }
++
++        if (rv != VPPCOM_OK)
++        {
++            errno = -rv;
++            rv = -1;
++        }
++    }
++    else
++    {
++        rv = getsockopt(fd, level, optname, optval, optlen);
++    }
++
++    return rv;
++}
++
++int ngxvcl_kvfd_setsockopt(int fd, int level, int optname, const void *optval,
++                           socklen_t optlen)
++{
++    int rv;
++
++    if (is_offset_vfd(fd))
++    {
++        int vfd = offset_vfd_to_vfd(fd);
++
++        rv = -EOPNOTSUPP;
++
++        switch (level)
++        {
++        case SOL_TCP:
++            switch (optname)
++            {
++            case TCP_NODELAY:
++                rv = vppcom_session_attr(vfd, VPPCOM_ATTR_SET_TCP_NODELAY,
++                                         (void *)optval, &optlen);
++                break;
++            case TCP_MAXSEG:
++                rv = vppcom_session_attr(vfd, VPPCOM_ATTR_SET_TCP_USER_MSS,
++                                         (void *)optval, &optlen);
++                break;
++            case TCP_KEEPIDLE:
++                rv = vppcom_session_attr(vfd, VPPCOM_ATTR_SET_TCP_KEEPIDLE,
++                                         (void *)optval, &optlen);
++                break;
++            case TCP_KEEPINTVL:
++                rv = vppcom_session_attr(vfd, VPPCOM_ATTR_SET_TCP_KEEPINTVL,
++                                         (void *)optval, &optlen);
++                break;
++            case TCP_CONGESTION:
++            case TCP_CORK:
++                /* Ignore */
++                rv = 0;
++                break;
++            default:
++                break;
++            }
++            break;
++        case SOL_IPV6:
++            switch (optname)
++            {
++            case IPV6_V6ONLY:
++                rv = vppcom_session_attr(vfd, VPPCOM_ATTR_SET_V6ONLY,
++                                         (void *)optval, &optlen);
++                break;
++            default:
++                break;
++            }
++            break;
++        case SOL_SOCKET:
++            switch (optname)
++            {
++            case SO_KEEPALIVE:
++                rv = vppcom_session_attr(vfd, VPPCOM_ATTR_SET_KEEPALIVE,
++                                         (void *)optval, &optlen);
++                break;
++            case SO_REUSEADDR:
++                rv = vppcom_session_attr(vfd, VPPCOM_ATTR_SET_REUSEADDR,
++                                         (void *)optval, &optlen);
++                break;
++            case SO_BROADCAST:
++                rv = vppcom_session_attr(vfd, VPPCOM_ATTR_SET_BROADCAST,
++                                         (void *)optval, &optlen);
++                break;
++            default:
++                break;
++            }
++            break;
++        default:
++            break;
++        }
++
++        if (rv != VPPCOM_OK)
++        {
++            errno = -rv;
++            rv = -1;
++        }
++    }
++    else
++    {
++        rv = setsockopt(fd, level, optname, optval, optlen);
++    }
++
++    return rv;
++}
++
++ssize_t ngxvcl_send(int offset_vfd, const void *buf, size_t n, int flags)
++{
++    ssize_t size;
++
++    size = vppcom_session_sendto(offset_vfd_to_vfd(offset_vfd), (void *)buf,
++                                 n, flags, NULL);
++
++    if (size < VPPCOM_OK)
++    {
++        errno = -size;
++        size = -1;
++    }
++
++    return size;
++}
++
++ssize_t ngxvcl_sendfile(int out_offset_vfd, int in_kfd, off_t *offset, size_t len)
++{
++    ssize_t size = 0;
++    int rv, out_vfd = offset_vfd_to_vfd(out_offset_vfd);
++    ssize_t results = 0;
++    size_t n_bytes_left = len;
++    size_t bytes_to_read;
++    int nbytes;
++    u8 eagain = 0;
++    u32 flags, flags_len = sizeof(flags);
++
++    rv = vppcom_session_attr(out_vfd, VPPCOM_ATTR_GET_FLAGS, &flags,
++                             &flags_len);
++
++    if (rv != VPPCOM_OK)
++    {
++        vec_reset_length (sendfile_io_buffer);
++        errno = -rv;
++        size = -1;
++        goto done;
++    }
++
++    if (offset)
++    {
++        off_t off = lseek(in_kfd, *offset, SEEK_SET);
++
++        if (off == -1)
++        {
++            size = -1;
++            goto done;
++        }
++    }
++
++    do
++    {
++        size = vppcom_session_attr(out_vfd, VPPCOM_ATTR_GET_NWRITE, 0, 0);
++
++        if (size < 0)
++        {
++            vec_reset_length (sendfile_io_buffer);
++            errno = -size;
++            size = -1;
++            goto done;
++        }
++
++        bytes_to_read = size;
++
++        if (bytes_to_read == 0)
++        {
++            if (flags & O_NONBLOCK)
++            {
++                if (!results)
++                    eagain = 1;
++                goto update_offset;
++            }
++            else
++                continue;
++        }
++
++        bytes_to_read = clib_min (n_bytes_left, bytes_to_read);
++        vec_validate (sendfile_io_buffer, bytes_to_read);
++        nbytes = read (in_kfd, sendfile_io_buffer, bytes_to_read);
++
++        if (nbytes < 0)
++        {
++            if (results == 0)
++            {
++                vec_reset_length (sendfile_io_buffer);
++                size = -1;
++                goto done;
++            }
++            goto update_offset;
++        }
++
++        size = vppcom_session_write(out_vfd, sendfile_io_buffer, nbytes);
++
++        if (size < 0)
++        {
++            if (size == VPPCOM_EAGAIN)
++            {
++                if (flags & O_NONBLOCK)
++                {
++                    if (!results)
++                        eagain = 1;
++                    goto update_offset;
++                }
++                else
++                    continue;
++            }
++            if (results == 0)
++            {
++                vec_reset_length (sendfile_io_buffer);
++                errno = -size;
++                size = -1;
++                goto done;
++            }
++            goto update_offset;
++        }
++
++        results += nbytes;
++        n_bytes_left = n_bytes_left - nbytes;
++    } while (n_bytes_left > 0);
++
++update_offset:
++    vec_reset_length (sendfile_io_buffer);
++    if (offset)
++    {
++        off_t off = lseek(in_kfd, *offset, SEEK_SET);
++
++        if (off == -1)
++        {
++            size = -1;
++            goto done;
++        }
++
++        *offset += results + 1;
++    }
++    if (eagain)
++    {
++        errno = EAGAIN;
++        size = -1;
++    }
++    else
++        size = results;
++
++done:
++    return size;
++}
++
++ssize_t ngxvcl_recv(int offset_vfd, void *buf, size_t n, int flags)
++{
++    ssize_t size;
++
++    size = vppcom_session_recvfrom(offset_vfd_to_vfd(offset_vfd), buf, n, flags, NULL);
++
++    if (size < 0)
++        errno = -size;
++
++    return size;
++}
++
++ssize_t ngxvcl_sendto(int offset_vfd, const void *buf, size_t n, int flags,
++                      const struct sockaddr *addr, socklen_t addr_len)
++{
++    ssize_t size;
++
++    vppcom_endpt_t *ep = 0;
++    vppcom_endpt_t _ep;
++
++    if (addr)
++    {
++        ep = &_ep;
++        switch (addr->sa_family)
++        {
++        case AF_INET:
++            ep->is_ip4 = VPPCOM_IS_IP4;
++            ep->ip = (uint8_t *)&((const struct sockaddr_in *)addr)->sin_addr;
++            ep->port = (uint16_t)((const struct sockaddr_in *)addr)->sin_port;
++            break;
++        case AF_INET6:
++            ep->is_ip4 = VPPCOM_IS_IP6;
++            ep->ip = (uint8_t *)&((const struct sockaddr_in6 *)addr)->sin6_addr;
++            ep->port = (uint16_t)((const struct sockaddr_in6 *)addr)->sin6_port;
++            break;
++        default:
++            errno = EAFNOSUPPORT;
++            size = -1;
++            goto done;
++        }
++    }
++
++    size = vppcom_session_sendto(offset_vfd_to_vfd(offset_vfd), (void *)buf, n, flags, ep);
++
++    if (size < 0)
++    {
++        errno = -size;
++        size = -1;
++    }
++
++done:
++    return size;
++}
++
++ssize_t ngxvcl_recvfrom(int offset_vfd, void *buf, size_t n, int flags,
++                        struct sockaddr *addr, socklen_t *addr_len)
++{
++    int vfd = offset_vfd_to_vfd(offset_vfd);
++    ssize_t size, rv;
++
++    vppcom_endpt_t ep;
++    u8 src_addr[sizeof(struct sockaddr_in6)];
++
++    if (addr)
++    {
++        ep.ip = src_addr;
++        size = vppcom_session_recvfrom(vfd, buf, n, flags, &ep);
++
++        if (size > 0)
++        {
++            rv = copy_ep_to_sockaddr(addr, addr_len, &ep);
++
++            if (rv < 0)
++                size = rv;
++        }
++    }
++    else
++        size = vppcom_session_recvfrom(vfd, buf, n, flags, NULL);
++
++    if (size < 0)
++    {
++        errno = -size;
++        size = -1;
++    }
++
++    return size;
++}
++
++ssize_t ngxvcl_sendmsg(int offset_vfd, const struct msghdr *message, int flags)
++{
++    ssize_t size;
++
++    errno = ENOSYS;
++    size = -1;
++
++    return size;
++}
++
++ssize_t ngxvcl_recvmsg(int offset_vfd, struct msghdr *message, int flags)
++{
++    ssize_t size;
++
++    errno = ENOSYS;
++    size = -1;
++
++    return size;
++}
++
++int ngxvcl_shutdown(int offset_vfd, int how)
++{
++    int rv = 0, flags, vfd = offset_vfd_to_vfd(offset_vfd);
++    u32 flags_len = sizeof(flags);
++
++    if (vppcom_session_attr(vfd, VPPCOM_ATTR_SET_SHUT, &how, &flags_len))
++    {
++        vppcom_session_close(vfd);
++        return -1;
++    }
++
++    if (vppcom_session_attr(vfd, VPPCOM_ATTR_GET_SHUT, &flags, &flags_len))
++    {
++        vppcom_session_close(vfd);
++        return -1;
++    }
++
++    if (flags == SHUT_RDWR)
++        rv = vppcom_session_close(vfd);
++
++    return rv;
++}
+diff --git a/src/vcl/ngxvcl.h b/src/vcl/ngxvcl.h
+new file mode 100644
+index 000000000..60b5116a8
+--- /dev/null
++++ b/src/vcl/ngxvcl.h
+@@ -0,0 +1,70 @@
++#ifndef _NGXVCL_H_
++#define _NGXVCL_H_
++
++#define _GNU_SOURCE
++#include <arpa/inet.h>
++#include <fcntl.h>
++#include <netinet/tcp.h>
++#include <stdarg.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <sys/errno.h>
++#include <sys/ioctl.h>
++#include <sys/sendfile.h>
++#include <sys/socket.h>
++#include <sys/uio.h>
++#include <unistd.h>
++#include <vcl/vppcom.h>
++
++void ngxvcl_wait_vep_only();
++void ngxvcl_wait_kep_and_vep();
++
++void ngxvcl_app_create(char *app_name);
++void ngxvcl_app_destroy(void);
++
++int ngxvcl_socket(int domain, int type, int protocol);
++int ngxvcl_close(int offset_vfd);
++int ngxvcl_kvfd_close(int fd);
++int ngxvcl_bind(int offset_vfd, const struct sockaddr *addr, socklen_t addrlen);
++int ngxvcl_listen(int offset_vfd, int backlog);
++
++int ngxvcl_accept4(int offset_vfd, struct sockaddr *addr, socklen_t *addrlen,
++                   int flags);
++int ngxvcl_accept(int offset_vfd, struct sockaddr *addr, socklen_t *addrlen);
++
++int ngxvcl_connect(int offset_vfd, const struct sockaddr *addr, socklen_t addrlen);
++int ngxvcl_read(int offset_vfd, void *buf, size_t count);
++int ngxvcl_write(int offset_vfd, const void *buf, size_t count);
++
++int ngxvcl_epoll_create(int size);
++int ngxvcl_kvfd_epoll_ctl(int offset_vepfd, int op, int fd, struct epoll_event *event);
++int ngxvcl_kvfd_epoll_wait(int offset_vepfd, struct epoll_event *events, int maxevents,
++                           int timeout);
++
++ssize_t ngxvcl_readv(int offset_vfd, const struct iovec *iov, int iovcnt);
++ssize_t ngxvcl_writev(int offset_vfd, const struct iovec *iov, int iovcnt);
++
++int ngxvcl_kvfd_fcntl(int fd, int cmd, ...);
++int ngxvcl_kvfd_ioctl(int fd, unsigned long int cmd, ...);
++
++int ngxvcl_socketpair(int domain, int type, int protocol, int fds[2]);
++int ngxvcl_kvfd_getsockname(int fd, struct sockaddr *addr, socklen_t *len);
++int ngxvcl_kvfd_getsockopt(int fd, int level, int optname, void *optval,
++                           socklen_t *optlen);
++int ngxvcl_kvfd_setsockopt(int fd, int level, int optname, const void *optval,
++                           socklen_t optlen);
++
++ssize_t ngxvcl_send(int fd, const void *buf, size_t n, int flags);
++ssize_t ngxvcl_sendfile(int out_offset_vfd, int in_kfd, off_t *offset, size_t len);
++ssize_t ngxvcl_recv(int offset_vfd, void *buf, size_t n, int flags);
++ssize_t ngxvcl_sendto(int offset_vfd, const void *buf, size_t n, int flags,
++                      const struct sockaddr *addr, socklen_t addr_len);
++ssize_t ngxvcl_recvfrom(int offset_vfd, void *buf, size_t n, int flags,
++                        struct sockaddr *addr, socklen_t *addr_len);
++ssize_t ngxvcl_sendmsg(int offset_vfd, const struct msghdr *message, int flags);
++ssize_t ngxvcl_recvmsg(int offset_vfd, struct msghdr *message, int flags);
++
++int ngxvcl_shutdown(int offset_vfd, int how);
++
++#endif
+-- 
+2.17.1
+
