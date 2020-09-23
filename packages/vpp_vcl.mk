@@ -60,11 +60,17 @@ define  vpp_vcl_patch_cmds
 			done; \
 		fi; \
 	fi
-	@for f in $(CURDIR)/vpp_patches/vcl/*.patch ; do \
-		echo Applying patch: $$(basename $$f) ; \
-		patch -p1 -d $(vpp_vcl_src_dir) < $$f ; \
-		done
-
+	@if [ $(_VPP_VER) = "master" ]; then \
+		for f in $(CURDIR)/vpp_patches/vcl/master/*.patch ; do \
+			echo Applying patch: $$(basename $$f) ; \
+			patch -p1 -d $(vpp_vcl_src_dir) < $$f ; \
+		done; \
+	else \
+		for f in $(CURDIR)/vpp_patches/vcl/other/*.patch ; do \
+			echo Applying patch: $$(basename $$f) ; \
+			patch -p1 -d $(vpp_vcl_src_dir) < $$f ; \
+		done; \
+	fi
 	@true
 endef
 
@@ -100,8 +106,10 @@ define  vpp_vcl_pkg_deb_cp_cmds
 	@echo "--- move deb to $(CURDIR)/dev-vcl ---"
 	@mkdir -p deb-vcl
 	@rm -f deb-vcl/*
-	@mv $(I)/openssl-deb/*.deb .
-	@rm $(B)/.openssl.pkg-deb.ok
+	@if [ $(openssl_enable) = 1 ]; then \
+		mv $(I)/openssl-deb/*.deb .; \
+		rm $(B)/.openssl.pkg-deb.ok; \
+	fi
 	@mv $(vpp_vcl_pkg_deb_dir)/*.deb deb-vcl/.
 endef
 
