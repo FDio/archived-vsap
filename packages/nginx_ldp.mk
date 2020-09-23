@@ -41,14 +41,15 @@ endef
 
 define  nginx_ldp_build_cmds
 	@$(MAKE) -C $(nginx_ldp_src_dir)
-endef
-
-define  nginx_ldp_install_cmds
 	@$(MAKE) -C $(nginx_ldp_src_dir) install
 	@cp configs/mime.types $(nginx_ldp_install_dir)/conf/.
 	@cp configs/nginx.conf $(nginx_ldp_install_dir)/conf/.
 	@cp configs/tls-* $(nginx_ldp_install_dir)/conf/.
 	@cp configs/vcl.conf $(nginx_ldp_install_dir)/conf/.
+endef
+
+define  nginx_ldp_install_cmds
+	@true
 endef
 
 define nginx_ldp_pkg_deb_cmds
