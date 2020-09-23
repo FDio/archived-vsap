@@ -24,7 +24,7 @@ nginx_vcl_tarball_strip_dirs := 1
 nginx_vcl_desc               := "vcl nginx"
 
 vsap_vcl_pkg_deb_name        := vsap-vcl
-vsap_vcl_version             := 1.0
+vsap_vcl_version             := 1.1
 vsap_vcl_install_dir         := $(CURDIR)/root
 vsap_vcl_pkg_deb_dir         := $(CURDIR)/
 vsap_vcl_deb_inst_dir        := /
