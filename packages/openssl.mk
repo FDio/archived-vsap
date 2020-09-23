@@ -23,19 +23,31 @@ openssl_tarball_strip_dirs := 1
 openssl_desc               := "openssl3.0.0"
 
 define  openssl_patch_cmds
-	@true
+	@if [ $(openssl_lib_ready) -eq 1 ]; then \
+		echo "--- patch: Openssl lib ready ---"; \
+	else \
+		true; \
+	fi
 endef
 
 define  openssl_config_cmds
-	@cd $(openssl_build_dir) && \
-		$(openssl_src_dir)/config \
-		--prefix=$(openssl_install_dir) shared zlib
+	@if [ $(openssl_lib_ready) -eq 1 ]; then \
+		echo "--- config: openssl lib ready ---"; \
+	else \
+		cd $(openssl_build_dir) && \
+			$(openssl_src_dir)/config \
+			--prefix=$(openssl_install_dir) shared zlib; \
+	fi
 endef
 
 define  openssl_build_cmds
-	@$(MAKE) -C $(openssl_build_dir) depend
-	@$(MAKE) -C $(openssl_build_dir)
-	@$(MAKE) -C $(openssl_build_dir) install
+	@if [ $(openssl_lib_ready) -eq 1 ]; then \
+		echo "--- build: openssl lib ready ---"; \
+	else \
+		$(MAKE) -C $(openssl_build_dir) depend; \
+		$(MAKE) -C $(openssl_build_dir); \
+		$(MAKE) -C $(openssl_build_dir) install; \
+	fi
 endef
 
 define  openssl_install_cmds
