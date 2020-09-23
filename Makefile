@@ -29,9 +29,12 @@ vpp ?= master
 MAKE ?= make
 MAKE_ARGS ?= -j
 openssl3_enable ?= 0
+openssl3_lib_ready ?= 0
 debug ?= 0
 BUILD_DIR        ?= $(CURDIR)/_build
 INSTALL_DIR      ?= $(CURDIR)/_install
+
+MAIN_BRANCH := master
 
 B := $(BUILD_DIR)
 I := $(INSTALL_DIR)
@@ -87,16 +90,40 @@ $(BR)/.deps.ok:
 	@touch $@
 
 .PHONY: build-vcl
+ifeq ($(openssl3_enable)_$(openssl3_lib_ready), 1_1)
+build-vcl: $(BR)/.deps.ok nginx-dl vpp_vcl-build nginx_vcl-build
+else ifeq ($(openssl3_enable),1)
 build-vcl: $(BR)/.deps.ok openssl-dl nginx-dl openssl-build vpp_vcl-build nginx_vcl-build
+else
+build-vcl: $(BR)/.deps.ok nginx-dl vpp_vcl-build nginx_vcl-build
+endif
 
 .PHONY: build-ldp
+ifeq ($(openssl3_enable)_$(openssl3_lib_ready), 1_1)
+build-ldp: $(BR)/.deps.ok nginx-dl vpp_ldp-build nginx_ldp-build
+else ifeq ($(openssl3_enable),1)
 build-ldp: $(BR)/.deps.ok openssl-dl nginx-dl openssl-build vpp_ldp-build nginx_ldp-build
+else
+build-ldp: $(BR)/.deps.ok nginx-dl vpp_ldp-build nginx_ldp-build
+endif
 
 .PHONY: deb-vcl
+ifeq ($(openssl3_enable)_$(openssl3_lib_ready), 1_1)
+deb-vcl: build-vcl vpp_vcl-deb nginx_vcl-deb
+else ifeq ($(openssl3_enable),1)
 deb-vcl: build-vcl openssl-deb vpp_vcl-deb nginx_vcl-deb
+else
+deb-vcl: build-vcl vpp_vcl-deb nginx_vcl-deb
+endif
 
 .PHONY: deb-ldp
+ifeq ($(openssl3_enable)_$(openssl3_lib_ready), 1_1)
+deb-ldp: build-ldp vpp_ldp-deb nginx_ldp-deb
+else ifeq ($(openssl3_enable),1)
 deb-ldp: build-ldp openssl-deb vpp_ldp-deb nginx_ldp-deb
+else
+deb-ldp: build-ldp vpp_ldp-deb nginx_ldp-deb
+endif
 
 .PHONY: verify-vcl
 verify-vcl: build-vcl

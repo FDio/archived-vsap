@@ -15,6 +15,8 @@ nginx_ldp_version            := 1.14.2
 nginx_ldp_src_dir            := $(B)/nginx_ldp
 nginx_ldp_install_dir        := /usr/local/nginx
 nginx_ldp_deb_inst_dir       := /usr/local/nginx
+nginx_ldp_tmp1_dir           := $(B)/nginx_ldp_backup1
+nginx_ldp_tmp2_dir           := $(B)/nginx_ldp_backup2
 nginx_ldp_pkg_deb_name       := nginx
 nginx_ldp_pkg_deb_dir        := $(I)/deb-ldp
 nginx_ldp_tarball            := nginx-$(nginx_ldp_version).tar.gz
@@ -40,18 +42,32 @@ define  nginx_ldp_config_cmds
 endef
 
 define  nginx_ldp_build_cmds
+	@if [ -e $(nginx_ldp_install_dir) ]; then \
+		rm -rf $(nginx_ldp_tmp1_dir) $(nginx_ldp_tmp2_dir); \
+		cp -rf $(nginx_ldp_install_dir) $(nginx_ldp_tmp1_dir); \
+	fi
 	@$(MAKE) -C $(nginx_ldp_src_dir)
-endef
-
-define  nginx_ldp_install_cmds
 	@$(MAKE) -C $(nginx_ldp_src_dir) install
 	@cp configs/mime.types $(nginx_ldp_install_dir)/conf/.
 	@cp configs/nginx.conf $(nginx_ldp_install_dir)/conf/.
 	@cp configs/tls-* $(nginx_ldp_install_dir)/conf/.
 	@cp configs/vcl.conf $(nginx_ldp_install_dir)/conf/.
+	@if [ -e $(nginx_ldp_tmp1_dir) ]; then \
+		cp -rf $(nginx_ldp_install_dir) $(nginx_ldp_tmp2_dir); \
+		rm -rf $(nginx_ldp_install_dir); \
+		cp -rf $(nginx_ldp_tmp1_dir) $(nginx_ldp_install_dir); \
+	fi
+endef
+
+define  nginx_ldp_install_cmds
+	@true
 endef
 
 define nginx_ldp_pkg_deb_cmds
+	@if [ -e $(nginx_ldp_tmp2_dir) ]; then \
+		rm -rf $(nginx_ldp_install_dir); \
+		cp -rf $(nginx_ldp_tmp2_dir) $(nginx_ldp_install_dir); \
+	fi
 	@fpm -f -s dir \
 		-t deb \
 		-n $(nginx_ldp_pkg_deb_name) \
@@ -65,6 +81,11 @@ define nginx_ldp_pkg_deb_cmds
 		--description $(nginx_ldp_desc) \
 		--deb-no-default-config-files \
 		--pre-install packages/pre-install
+	@if [ -e $(nginx_ldp_tmp2_dir) ]; then \
+		rm -rf $(nginx_ldp_install_dir); \
+		cp -rf $(nginx_ldp_tmp1_dir) $(nginx_ldp_install_dir); \
+		rm -rf $(nginx_ldp_tmp1_dir) $(nginx_ldp_tmp2_dir); \
+	fi
 endef
 
 define  nginx_ldp_pkg_deb_cp_cmds
