@@ -60,25 +60,6 @@ define  vpp_ldp_patch_cmds
 			done; \
 		fi; \
 	fi
-	@if [ $(_VPP_VER) = "master" ]; then \
-		echo "--- patch master ---"; \
-		for f in $(CURDIR)/vpp_patches/ldp/master/*.patch ; do \
-			echo Applying patch: $$(basename $$f) ; \
-			patch -p1 -d $(vpp_ldp_src_dir) < $$f ; \
-		done; \
-	elif [ $(_VPP_VER) = "2005" ]; then \
-		echo "--- patch v20.05 ---"; \
-		for f in $(CURDIR)/vpp_patches/ldp/2005/*.patch ; do \
-			echo Applying patch: $$(basename $$f) ; \
-			patch -p1 -d $(vpp_ldp_src_dir) < $$f ; \
-		done; \
-	elif [ $(_VPP_VER) = "2001" ]; then \
-		echo "--- patch 2001 ---"; \
-		for f in $(CURDIR)/vpp_patches/ldp/2001/*.patch ; do \
-			echo Applying patch: $$(basename $$f) ; \
-			patch -p1 -d $(vpp_ldp_src_dir) < $$f ; \
-		done; \
-	fi
 	@true
 endef
 
