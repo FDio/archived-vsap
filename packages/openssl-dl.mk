@@ -13,7 +13,7 @@
 
 openssl_version            := 3.0.0-alpha4
 openssl_tarball            := openssl-$(openssl_version).tar.gz
-openssl_tarball_md5sum     := 77b49cc5de23ef79a75a6d3aaa555b46
-openssl_url                := https://www.openssl.org/source/$(openssl_tarball)
+openssl_tarball_md5sum     := cc82107365e76fec97a9d519b9c1f43d
+openssl_url                := https://github.com/openssl/openssl/archive/$(openssl_tarball)
 
 $(eval $(call download,openssl))
