@@ -1,0 +1,1927 @@
+From 0259cf4df609305ef90e1e3803b5b8e81662a954 Mon Sep 17 00:00:00 2001
+From: Vladimir Medvedkin <vladimir.medvedkin@intel.com>
+Date: Mon, 24 Aug 2020 18:35:00 +0100
+Subject: [PATCH] tlspicotls plugin async handshake capability
+
+make picotls build with openssl3
+
+Signed-off-by: Vladimir Medvedkin <vladimir.medvedkin@intel.com>
+
+picotls:async mode for certificate-verify
+
+From:Kazuho Oku <kazuhooku@gmail.com>
+
+async mode for certificate-verify
+add an async sign_certificate callback
+inspired by PoC written by @pingyucn
+
+Signed-off-by: Vladimir Medvedkin <vladimir.medvedkin@intel.com>
+
+picotls:async mode for sign_certificate
+
+From:Ping Yu <ping.yu@intel.com>
+
+Add async mode for sign_certificate using openssl ASYNC
+
+Signed-off-by: Vladimir Medvedkin <vladimir.medvedkin@intel.com>
+Signed-off-by: Ping Yu <ping.yu@intel.com>
+
+add ptls_get_sign_certificate_ctx patch
+
+Signed-off-by: Vladimir Medvedkin <vladimir.medvedkin@intel.com>
+
+Attach callback to WAITCTX in async openssl sign_certificate
+
+Signed-off-by: Vladimir Medvedkin <vladimir.medvedkin@intel.com>
+
+add support for async sign_certificate in picotls plugin
+
+Signed-off-by: Vladimir Medvedkin <vladimir.medvedkin@intel.com>
+---
+ ...01-add-ptls_get_sign_certificate_ctx.patch |  45 ++
+ ...01-async-mode-for-certificate-verify.patch | 624 ++++++++++++++++++
+ ...sign_certificate-using-openssl-ASYNC.patch | 161 +++++
+ ...-attaching-a-callback-to-the-WAITCTX.patch |  57 ++
+ .../cmake-openssl-version-hack.patch          |  15 +
+ .../quickly-cmake-openssl-version-hack.patch  |  15 +
+ src/CMakeLists.txt                            |   2 +-
+ src/plugins/tlspicotls/CMakeLists.txt         |  12 +-
+ src/plugins/tlspicotls/tls_async.c            | 528 +++++++++++++++
+ src/plugins/tlspicotls/tls_picotls.c          | 182 ++++-
+ src/plugins/tlspicotls/tls_picotls.h          |  35 +
+ 11 files changed, 1664 insertions(+), 12 deletions(-)
+ create mode 100644 build/external/patches/quicly_0.1.0-vpp/0001-add-ptls_get_sign_certificate_ctx.patch
+ create mode 100644 build/external/patches/quicly_0.1.0-vpp/0001-async-mode-for-certificate-verify.patch
+ create mode 100644 build/external/patches/quicly_0.1.0-vpp/0002-Async-mode-for-sign_certificate-using-openssl-ASYNC.patch
+ create mode 100644 build/external/patches/quicly_0.1.0-vpp/0003-attaching-a-callback-to-the-WAITCTX.patch
+ create mode 100644 build/external/patches/quicly_0.1.0-vpp/cmake-openssl-version-hack.patch
+ create mode 100644 build/external/patches/quicly_0.1.0-vpp/quickly-cmake-openssl-version-hack.patch
+ create mode 100644 src/plugins/tlspicotls/tls_async.c
+
+diff --git a/build/external/patches/quicly_0.1.0-vpp/0001-add-ptls_get_sign_certificate_ctx.patch b/build/external/patches/quicly_0.1.0-vpp/0001-add-ptls_get_sign_certificate_ctx.patch
+new file mode 100644
+index 000000000..43042a4a6
+--- /dev/null
++++ b/build/external/patches/quicly_0.1.0-vpp/0001-add-ptls_get_sign_certificate_ctx.patch
+@@ -0,0 +1,45 @@
++From 1bcfdc6b220eb1259ba6609f1ba8250a281f70e6 Mon Sep 17 00:00:00 2001
++From: root <root@localhost.localdomain>
++Date: Fri, 24 Jul 2020 15:08:31 +0100
++Subject: [PATCH] add ptls_get_sign_certificate_ctx()
++
++Signed-off-by: root <root@localhost.localdomain>
++---
++ deps/picotls/include/picotls.h | 4 ++++
++ deps/picotls/lib/picotls.c     | 5 +++++
++ 2 files changed, 9 insertions(+)
++
++diff --git a/deps/picotls/include/picotls.h b/deps/picotls/include/picotls.h
++index 6906158..746e971 100644
++--- a/deps/picotls/include/picotls.h
+++++ b/deps/picotls/include/picotls.h
++@@ -1040,6 +1040,10 @@ int ptls_is_psk_handshake(ptls_t *tls);
++  * returns a pointer to user data pointer (client is reponsible for freeing the associated data prior to calling ptls_free)
++  */
++ void **ptls_get_data_ptr(ptls_t *tls);
+++/**
+++ * returns a pointer to user sign_certificate context
+++ */
+++void **ptls_get_sign_certificate_ctx(ptls_t *tls);
++ /**
++  *
++  */
++diff --git a/deps/picotls/lib/picotls.c b/deps/picotls/lib/picotls.c
++index 7baca0f..9ac6a5e 100644
++--- a/deps/picotls/lib/picotls.c
+++++ b/deps/picotls/lib/picotls.c
++@@ -4341,6 +4341,11 @@ void **ptls_get_data_ptr(ptls_t *tls)
++     return &tls->data_ptr;
++ }
++ 
+++void **ptls_get_sign_certificate_ctx(ptls_t *tls)
+++{
+++    return &tls->server.sign_certificate_ctx;
+++}
+++
++ int ptls_skip_tracing(ptls_t *tls)
++ {
++     return tls->skip_tracing;
++-- 
++2.17.1
++
+diff --git a/build/external/patches/quicly_0.1.0-vpp/0001-async-mode-for-certificate-verify.patch b/build/external/patches/quicly_0.1.0-vpp/0001-async-mode-for-certificate-verify.patch
+new file mode 100644
+index 000000000..9d2420aa6
+--- /dev/null
++++ b/build/external/patches/quicly_0.1.0-vpp/0001-async-mode-for-certificate-verify.patch
+@@ -0,0 +1,624 @@
++From 6a8e75491c0ccd6dda97ab8561bb292cd056e1e0 Mon Sep 17 00:00:00 2001
++From: Kazuho Oku <kazuhooku@gmail.com>
++Date: Wed, 26 Feb 2020 15:54:47 +0900
++Subject: [PATCH 1/2] async mode for certificate-verify
++
++[refactor] separately count the invocations of sign_certificate on both sides
++
++add an async sign_certificate callback inspired by PoC written by @pingyucn
++
++check for the correct error codes
++
++clang-format
++---
++ deps/picotls/include/picotls.h |  12 +++-
++ deps/picotls/lib/openssl.c     |   4 +-
++ deps/picotls/lib/picotls.c     | 136 +++++++++++++++++++++++++++------------
++ deps/picotls/lib/uecc.c        |   4 +-
++ deps/picotls/t/minicrypto.c    |   2 +-
++ deps/picotls/t/picotls.c       | 159 +++++++++++++++++++++++++++++-----------------
++ 6 files changed, 211 insertions(+), 106 deletions(-)
++
++diff --git a/deps/picotls/include/picotls.h b/deps/picotls/include/picotls.h
++index 82dd675..6906158 100644
++--- a/deps/picotls/include/picotls.h
+++++ b/deps/picotls/include/picotls.h
++@@ -155,6 +155,7 @@ extern "C" {
++ #define PTLS_ERROR_COMPRESSION_FAILURE (PTLS_ERROR_CLASS_INTERNAL + 8)
++ #define PTLS_ERROR_ESNI_RETRY (PTLS_ERROR_CLASS_INTERNAL + 8)
++ #define PTLS_ERROR_REJECT_EARLY_DATA (PTLS_ERROR_CLASS_INTERNAL + 9)
+++#define PTLS_ERROR_ASYNC_OPERATION (PTLS_ERROR_CLASS_INTERNAL + 10)
++ 
++ #define PTLS_ERROR_INCORRECT_BASE64 (PTLS_ERROR_CLASS_INTERNAL + 50)
++ #define PTLS_ERROR_PEM_LABEL_NOT_FOUND (PTLS_ERROR_CLASS_INTERNAL + 51)
++@@ -511,10 +512,15 @@ PTLS_CALLBACK_TYPE(int, on_client_hello, ptls_t *tls, ptls_on_client_hello_param
++ PTLS_CALLBACK_TYPE(int, emit_certificate, ptls_t *tls, ptls_message_emitter_t *emitter, ptls_key_schedule_t *key_sched,
++                    ptls_iovec_t context, int push_status_request);
++ /**
++- * when gerenating CertificateVerify, the core calls the callback to sign the handshake context using the certificate.
+++ * When gerenating CertificateVerify, the core calls the callback to sign the handshake context using the certificate. This callback
+++ * may return PTLS_ERROR_ASYNC_OPERATION, and signal the application outside of picotls when the signature has been generated. At
+++ * that point, the application should call `ptls_handshake`, which in turn would invoke this callback once again. The callback then
+++ * fills `*selected_algorithm` and `output` with the signature being generated. Note that `algorithms` and `num_algorithms` are
+++ * provided only when the callback is called for the first time. The callback can store arbitrary pointer specific to each signature
+++ * generation in `*sign_ctx`.
++  */
++-PTLS_CALLBACK_TYPE(int, sign_certificate, ptls_t *tls, uint16_t *selected_algorithm, ptls_buffer_t *output, ptls_iovec_t input,
++-                   const uint16_t *algorithms, size_t num_algorithms);
+++PTLS_CALLBACK_TYPE(int, sign_certificate, ptls_t *tls, void **sign_ctx, uint16_t *selected_algorithm, ptls_buffer_t *output,
+++                   ptls_iovec_t input, const uint16_t *algorithms, size_t num_algorithms);
++ /**
++  * after receiving Certificate, the core calls the callback to verify the certificate chain and to obtain a pointer to a
++  * callback that should be used for verifying CertificateVerify. If an error occurs between a successful return from this
++diff --git a/deps/picotls/lib/openssl.c b/deps/picotls/lib/openssl.c
++index 31c828a..1e4aef7 100644
++--- a/deps/picotls/lib/openssl.c
+++++ b/deps/picotls/lib/openssl.c
++@@ -920,8 +920,8 @@ ptls_define_hash(sha256, SHA256_CTX, SHA256_Init, SHA256_Update, _sha256_final);
++ #define _sha384_final(ctx, md) SHA384_Final((md), (ctx))
++ ptls_define_hash(sha384, SHA512_CTX, SHA384_Init, SHA384_Update, _sha384_final);
++ 
++-static int sign_certificate(ptls_sign_certificate_t *_self, ptls_t *tls, uint16_t *selected_algorithm, ptls_buffer_t *outbuf,
++-                            ptls_iovec_t input, const uint16_t *algorithms, size_t num_algorithms)
+++static int sign_certificate(ptls_sign_certificate_t *_self, ptls_t *tls, void **sign_ctx, uint16_t *selected_algorithm,
+++                            ptls_buffer_t *outbuf, ptls_iovec_t input, const uint16_t *algorithms, size_t num_algorithms)
++ {
++     ptls_openssl_sign_certificate_t *self = (ptls_openssl_sign_certificate_t *)_self;
++     const struct st_ptls_openssl_signature_scheme_t *scheme;
++diff --git a/deps/picotls/lib/picotls.c b/deps/picotls/lib/picotls.c
++index 28f6f78..7baca0f 100644
++--- a/deps/picotls/lib/picotls.c
+++++ b/deps/picotls/lib/picotls.c
++@@ -166,6 +166,7 @@ struct st_ptls_t {
++         PTLS_STATE_CLIENT_EXPECT_FINISHED,
++         PTLS_STATE_SERVER_EXPECT_CLIENT_HELLO,
++         PTLS_STATE_SERVER_EXPECT_SECOND_CLIENT_HELLO,
+++        PTLS_STATE_SERVER_GENERATING_CERTIFICATE_VERIFY,
++         PTLS_STATE_SERVER_EXPECT_CERTIFICATE,
++         PTLS_STATE_SERVER_EXPECT_CERTIFICATE_VERIFY,
++         /* ptls_send can be called if the state is below here */
++@@ -248,6 +249,8 @@ struct st_ptls_t {
++         struct {
++             uint8_t pending_traffic_secret[PTLS_MAX_DIGEST_SIZE];
++             uint32_t early_data_skipped_bytes; /* if not UINT32_MAX, the server is skipping early data */
+++            unsigned can_send_session_ticket : 1;
+++            void *sign_certificate_ctx;
++         } server;
++     };
++     /**
++@@ -375,6 +378,8 @@ static int hkdf_expand_label(ptls_hash_algorithm_t *algo, void *output, size_t o
++                              ptls_iovec_t hash_value, const char *label_prefix);
++ static ptls_aead_context_t *new_aead(ptls_aead_algorithm_t *aead, ptls_hash_algorithm_t *hash, int is_enc, const void *secret,
++                                      ptls_iovec_t hash_value, const char *label_prefix);
+++static int server_complete_handshake(ptls_t *tls, ptls_message_emitter_t *emitter, int send_cert_verify,
+++                                     struct st_ptls_signature_algorithms_t *signature_algorithms);
++ 
++ static int is_supported_version(uint16_t v)
++ {
++@@ -2547,9 +2552,9 @@ Exit:
++     return ret;
++ }
++ 
++-static int send_certificate_and_certificate_verify(ptls_t *tls, ptls_message_emitter_t *emitter,
++-                                                   struct st_ptls_signature_algorithms_t *signature_algorithms,
++-                                                   ptls_iovec_t context, const char *context_string, int push_status_request)
+++static int send_certificate(ptls_t *tls, ptls_message_emitter_t *emitter,
+++                            struct st_ptls_signature_algorithms_t *signature_algorithms, ptls_iovec_t context,
+++                            int push_status_request)
++ {
++     static ptls_emit_certificate_t default_emit_certificate = {default_emit_certificate_cb};
++     ptls_emit_certificate_t *emit_certificate =
++@@ -2565,26 +2570,43 @@ static int send_certificate_and_certificate_verify(ptls_t *tls, ptls_message_emi
++     if ((ret = emit_certificate->cb(emit_certificate, tls, emitter, tls->key_schedule, context, push_status_request)) != 0)
++         goto Exit;
++ 
++-    /* build and send CertificateVerify */
++-    if (tls->ctx->sign_certificate != NULL) {
++-        ptls_push_message(emitter, tls->key_schedule, PTLS_HANDSHAKE_TYPE_CERTIFICATE_VERIFY, {
++-            ptls_buffer_t *sendbuf = emitter->buf;
++-            size_t algo_off = sendbuf->off;
++-            ptls_buffer_push16(sendbuf, 0); /* filled in later */
++-            ptls_buffer_push_block(sendbuf, 2, {
++-                uint16_t algo;
++-                uint8_t data[PTLS_MAX_CERTIFICATE_VERIFY_SIGNDATA_SIZE];
++-                size_t datalen = build_certificate_verify_signdata(data, tls->key_schedule, context_string);
++-                if ((ret = tls->ctx->sign_certificate->cb(tls->ctx->sign_certificate, tls, &algo, sendbuf,
++-                                                          ptls_iovec_init(data, datalen), signature_algorithms->list,
++-                                                          signature_algorithms->count)) != 0) {
++-                    goto Exit;
+++Exit:
+++    return ret;
+++}
+++
+++static int send_certificate_verify(ptls_t *tls, ptls_message_emitter_t *emitter,
+++                                   struct st_ptls_signature_algorithms_t *signature_algorithms, const char *context_string)
+++{
+++    size_t start_off = emitter->buf->off;
+++    int ret;
+++
+++    if (tls->ctx->sign_certificate == NULL)
+++        return 0;
+++
+++    ptls_push_message(emitter, tls->key_schedule, PTLS_HANDSHAKE_TYPE_CERTIFICATE_VERIFY, {
+++        ptls_buffer_t *sendbuf = emitter->buf;
+++        size_t algo_off = sendbuf->off;
+++        ptls_buffer_push16(sendbuf, 0); /* filled in later */
+++        ptls_buffer_push_block(sendbuf, 2, {
+++            uint16_t algo;
+++            uint8_t data[PTLS_MAX_CERTIFICATE_VERIFY_SIGNDATA_SIZE];
+++            size_t datalen = build_certificate_verify_signdata(data, tls->key_schedule, context_string);
+++            if ((ret = tls->ctx->sign_certificate->cb(tls->ctx->sign_certificate, tls, &tls->server.sign_certificate_ctx, &algo,
+++                                                      sendbuf, ptls_iovec_init(data, datalen),
+++                                                      signature_algorithms != NULL ? signature_algorithms->list : NULL,
+++                                                      signature_algorithms != NULL ? signature_algorithms->count : 0)) != 0) {
+++                if (ret == PTLS_ERROR_ASYNC_OPERATION) {
+++                    assert(tls->is_server || !"async operation only supported on the server-side");
+++                    /* Reset the output to the end of the previous handshake message. CertificateVerify will be rebuilt when the
+++                     * async operation completes. */
+++                    emitter->buf->off = start_off;
++                 }
++-                sendbuf->base[algo_off] = (uint8_t)(algo >> 8);
++-                sendbuf->base[algo_off + 1] = (uint8_t)algo;
++-            });
+++                goto Exit;
+++            }
+++            sendbuf->base[algo_off] = (uint8_t)(algo >> 8);
+++            sendbuf->base[algo_off + 1] = (uint8_t)algo;
++         });
++-    }
+++    });
++ 
++ Exit:
++     return ret;
++@@ -2843,9 +2865,10 @@ static int client_handle_finished(ptls_t *tls, ptls_message_emitter_t *emitter,
++             ret = PTLS_ALERT_ILLEGAL_PARAMETER;
++             goto Exit;
++         }
++-        ret = send_certificate_and_certificate_verify(tls, emitter, &tls->client.certificate_request.signature_algorithms,
++-                                                      tls->client.certificate_request.context,
++-                                                      PTLS_CLIENT_CERTIFICATE_VERIFY_CONTEXT_STRING, 0);
+++        if ((ret = send_certificate(tls, emitter, &tls->client.certificate_request.signature_algorithms,
+++                                    tls->client.certificate_request.context, 0)) == 0)
+++            ret = send_certificate_verify(tls, emitter, &tls->client.certificate_request.signature_algorithms,
+++                                          PTLS_CLIENT_CERTIFICATE_VERIFY_CONTEXT_STRING);
++         free(tls->client.certificate_request.context.base);
++         tls->client.certificate_request.context = ptls_iovec_init(NULL, 0);
++         if (ret != 0)
++@@ -3805,6 +3828,7 @@ static int server_handle_hello(ptls_t *tls, ptls_message_emitter_t *emitter, ptl
++             properties->server.selected_psk_binder.len = selected->len;
++         }
++     }
+++    tls->server.can_send_session_ticket = ch.psk.ke_modes != 0;
++ 
++     if (accept_early_data && tls->ctx->max_early_data_size != 0 && psk_index == 0) {
++         if ((tls->pending_handshake_secret = malloc(PTLS_MAX_DIGEST_SIZE)) == NULL) {
++@@ -3916,23 +3940,54 @@ static int server_handle_hello(ptls_t *tls, ptls_message_emitter_t *emitter, ptl
++                     });
++                 });
++             });
++-
++-            if (ret != 0) {
+++            if (ret != 0)
++                 goto Exit;
++-            }
++         }
+++        /* send certificate */
+++        if ((ret = send_certificate(tls, emitter, &ch.signature_algorithms, ptls_iovec_init(NULL, 0), ch.status_request)) != 0)
+++            goto Exit;
+++        /* send certificateverify, finished, and complete the handshake */
+++        if ((ret = server_complete_handshake(tls, emitter, 1, &ch.signature_algorithms)) != 0)
+++            goto Exit;
+++    } else {
+++        /* send finished, and complete the handshake */
+++        if ((ret = server_complete_handshake(tls, emitter, 0, NULL)) != 0)
+++            goto Exit;
+++    }
+++
+++Exit:
+++    free(pubkey.base);
+++    if (ecdh_secret.base != NULL) {
+++        ptls_clear_memory(ecdh_secret.base, ecdh_secret.len);
+++        free(ecdh_secret.base);
+++    }
+++    return ret;
+++
+++#undef EMIT_SERVER_HELLO
+++#undef EMIT_HELLO_RETRY_REQUEST
+++}
++ 
++-        ret = send_certificate_and_certificate_verify(tls, emitter, &ch.signature_algorithms, ptls_iovec_init(NULL, 0),
++-                                                      PTLS_SERVER_CERTIFICATE_VERIFY_CONTEXT_STRING, ch.status_request);
+++int server_complete_handshake(ptls_t *tls, ptls_message_emitter_t *emitter, int send_cert_verify,
+++                              struct st_ptls_signature_algorithms_t *signature_algorithms)
+++{
+++    int ret;
++ 
++-        if (ret != 0) {
+++    /* send certificateverify if requested */
+++    if (send_cert_verify) {
+++        if ((ret = send_certificate_verify(tls, emitter, signature_algorithms, PTLS_SERVER_CERTIFICATE_VERIFY_CONTEXT_STRING)) !=
+++            0) {
+++            /* signature generation might be an async operation, in that case */
+++            if (ret == PTLS_ERROR_ASYNC_OPERATION)
+++                tls->state = PTLS_STATE_SERVER_GENERATING_CERTIFICATE_VERIFY;
++             goto Exit;
++         }
++     }
++ 
+++    /* send finished */
++     if ((ret = send_finished(tls, emitter)) != 0)
++         goto Exit;
++ 
+++    /* update traffic secret, keys */
++     assert(tls->key_schedule->generation == 2);
++     if ((ret = key_schedule_extract(tls->key_schedule, ptls_iovec_init(NULL, 0))) != 0)
++         goto Exit;
++@@ -3958,7 +4013,7 @@ static int server_handle_hello(ptls_t *tls, ptls_message_emitter_t *emitter, ptl
++     }
++ 
++     /* send session ticket if necessary */
++-    if (ch.psk.ke_modes != 0 && tls->ctx->ticket_lifetime != 0) {
+++    if (tls->server.can_send_session_ticket != 0 && tls->ctx->ticket_lifetime != 0) {
++         if ((ret = send_session_ticket(tls, emitter)) != 0)
++             goto Exit;
++     }
++@@ -3970,15 +4025,7 @@ static int server_handle_hello(ptls_t *tls, ptls_message_emitter_t *emitter, ptl
++     }
++ 
++ Exit:
++-    free(pubkey.base);
++-    if (ecdh_secret.base != NULL) {
++-        ptls_clear_memory(ecdh_secret.base, ecdh_secret.len);
++-        free(ecdh_secret.base);
++-    }
++     return ret;
++-
++-#undef EMIT_SERVER_HELLO
++-#undef EMIT_HELLO_RETRY_REQUEST
++ }
++ 
++ static int server_handle_end_of_early_data(ptls_t *tls, ptls_iovec_t message)
++@@ -4648,6 +4695,8 @@ int ptls_handshake(ptls_t *tls, ptls_buffer_t *_sendbuf, const void *input, size
++         assert(tls->ctx->key_exchanges[0] != NULL);
++         return send_client_hello(tls, &emitter.super, properties, NULL);
++     }
+++    case PTLS_STATE_SERVER_GENERATING_CERTIFICATE_VERIFY:
+++        return server_complete_handshake(tls, &emitter.super, 1, NULL);
++     default:
++         break;
++     }
++@@ -4673,6 +4722,7 @@ int ptls_handshake(ptls_t *tls, ptls_buffer_t *_sendbuf, const void *input, size
++     case 0:
++     case PTLS_ERROR_IN_PROGRESS:
++     case PTLS_ERROR_STATELESS_RETRY:
+++    case PTLS_ERROR_ASYNC_OPERATION:
++         break;
++     default:
++         /* flush partially written response */
++@@ -5226,7 +5276,13 @@ int ptls_server_handle_message(ptls_t *tls, ptls_buffer_t *sendbuf, size_t epoch
++         {sendbuf, &tls->traffic_protection.enc, 0, begin_raw_message, commit_raw_message}, SIZE_MAX, epoch_offsets};
++     struct st_ptls_record_t rec = {PTLS_CONTENT_TYPE_HANDSHAKE, 0, inlen, input};
++ 
++-    assert(input);
+++    if (tls->state == PTLS_STATE_SERVER_GENERATING_CERTIFICATE_VERIFY) {
+++        int ret;
+++        if ((ret = server_complete_handshake(tls, &emitter.super, 1, NULL)) != 0)
+++            return ret;
+++    }
+++
+++    assert(input != NULL);
++ 
++     if (ptls_get_read_epoch(tls) != in_epoch)
++         return PTLS_ALERT_UNEXPECTED_MESSAGE;
++diff --git a/deps/picotls/lib/uecc.c b/deps/picotls/lib/uecc.c
++index 41718d2..b4b2bf2 100644
++--- a/deps/picotls/lib/uecc.c
+++++ b/deps/picotls/lib/uecc.c
++@@ -131,8 +131,8 @@ Exit:
++     return ret;
++ }
++ 
++-static int secp256r1sha256_sign(ptls_sign_certificate_t *_self, ptls_t *tls, uint16_t *selected_algorithm, ptls_buffer_t *outbuf,
++-                                ptls_iovec_t input, const uint16_t *algorithms, size_t num_algorithms)
+++static int secp256r1sha256_sign(ptls_sign_certificate_t *_self, ptls_t *tls, void **sign_ctx, uint16_t *selected_algorithm,
+++                                ptls_buffer_t *outbuf, ptls_iovec_t input, const uint16_t *algorithms, size_t num_algorithms)
++ {
++     ptls_minicrypto_secp256r1sha256_sign_certificate_t *self = (ptls_minicrypto_secp256r1sha256_sign_certificate_t *)_self;
++     uint8_t hash[32], sig[64];
++diff --git a/deps/picotls/t/minicrypto.c b/deps/picotls/t/minicrypto.c
++index 4b0d73c..028a5cb 100644
++--- a/deps/picotls/t/minicrypto.c
+++++ b/deps/picotls/t/minicrypto.c
++@@ -52,7 +52,7 @@ static void test_secp256r1_sign(void)
++     uECC_make_key(pub, signer.key, uECC_secp256r1());
++     ptls_buffer_init(&sigbuf, sigbuf_small, sizeof(sigbuf_small));
++ 
++-    ok(secp256r1sha256_sign(&signer.super, NULL, &selected, &sigbuf, ptls_iovec_init(msg, 32),
+++    ok(secp256r1sha256_sign(&signer.super, NULL, NULL, &selected, &sigbuf, ptls_iovec_init(msg, 32),
++                             (uint16_t[]){PTLS_SIGNATURE_ECDSA_SECP256R1_SHA256}, 1) == 0);
++     ok(selected == PTLS_SIGNATURE_ECDSA_SECP256R1_SHA256);
++ 
++diff --git a/deps/picotls/t/picotls.c b/deps/picotls/t/picotls.c
++index 84666bf..1f6ab6e 100644
++--- a/deps/picotls/t/picotls.c
+++++ b/deps/picotls/t/picotls.c
++@@ -47,6 +47,7 @@ static void test_is_ipaddr(void)
++ ptls_context_t *ctx, *ctx_peer;
++ ptls_verify_certificate_t *verify_certificate;
++ struct st_ptls_ffx_test_variants_t ffx_variants[7];
+++static unsigned server_sc_callcnt, client_sc_callcnt, async_sc_callcnt;
++ 
++ static ptls_cipher_suite_t *find_cipher(ptls_context_t *ctx, uint16_t id)
++ {
++@@ -567,6 +568,10 @@ static void test_handshake(ptls_iovec_t ticket, int mode, int expect_ticket, int
++     const char *req = "GET / HTTP/1.0\r\n\r\n";
++     const char *resp = "HTTP/1.0 200 OK\r\n\r\nhello world\n";
++ 
+++    client_sc_callcnt = 0;
+++    server_sc_callcnt = 0;
+++    async_sc_callcnt = 0;
+++
++     if (check_ch)
++         ctx->verify_certificate = verify_certificate;
++ 
++@@ -649,11 +654,14 @@ static void test_handshake(ptls_iovec_t ticket, int mode, int expect_ticket, int
++     consumed = cbuf.off;
++     ret = ptls_handshake(server, &sbuf, cbuf.base, &consumed, &server_hs_prop);
++ 
++-    if (require_client_authentication == 1) {
+++    if (require_client_authentication) {
+++        /* at the moment, async sign-certificate is not supported in this path, neither on the client-side or the server-side */
++         ok(ptls_is_psk_handshake(server) == 0);
++         ok(ret == PTLS_ERROR_IN_PROGRESS);
++-    } else {
+++    } else if (mode == TEST_HANDSHAKE_EARLY_DATA) {
++         ok(ret == 0);
+++    } else {
+++        ok(ret == 0 || ret == PTLS_ERROR_ASYNC_OPERATION);
++     }
++ 
++     ok(sbuf.off != 0);
++@@ -668,7 +676,7 @@ static void test_handshake(ptls_iovec_t ticket, int mode, int expect_ticket, int
++         ok(ptls_get_negotiated_protocol(server) == NULL);
++     }
++ 
++-    if (mode == TEST_HANDSHAKE_EARLY_DATA && require_client_authentication == 0) {
+++    if (mode == TEST_HANDSHAKE_EARLY_DATA && !require_client_authentication) {
++         ok(consumed < cbuf.off);
++         memmove(cbuf.base, cbuf.base + consumed, cbuf.off - consumed);
++         cbuf.off -= consumed;
++@@ -690,6 +698,21 @@ static void test_handshake(ptls_iovec_t ticket, int mode, int expect_ticket, int
++         cbuf.off = 0;
++     }
++ 
+++    while (ret == PTLS_ERROR_ASYNC_OPERATION) {
+++        consumed = sbuf.off;
+++        ret = ptls_handshake(client, &cbuf, sbuf.base, &consumed, NULL);
+++        ok(ret == PTLS_ERROR_IN_PROGRESS);
+++        ok(consumed == sbuf.off);
+++        ok(cbuf.off == 0);
+++        sbuf.off = 0;
+++        ret = ptls_handshake(server, &sbuf, NULL, NULL, &server_hs_prop);
+++    }
+++    if (require_client_authentication) {
+++        ok(ret == PTLS_ERROR_IN_PROGRESS);
+++    } else {
+++        ok(ret == 0);
+++    }
+++
++     consumed = sbuf.off;
++     ret = ptls_handshake(client, &cbuf, sbuf.base, &consumed, NULL);
++     ok(ret == 0);
++@@ -807,58 +830,79 @@ static void test_handshake(ptls_iovec_t ticket, int mode, int expect_ticket, int
++ }
++ 
++ static ptls_sign_certificate_t *sc_orig;
++-size_t sc_callcnt;
++ 
++-static int sign_certificate(ptls_sign_certificate_t *self, ptls_t *tls, uint16_t *selected_algorithm, ptls_buffer_t *output,
++-                            ptls_iovec_t input, const uint16_t *algorithms, size_t num_algorithms)
+++static int sign_certificate(ptls_sign_certificate_t *self, ptls_t *tls, void **sign_ctx, uint16_t *selected_algorithm,
+++                            ptls_buffer_t *output, ptls_iovec_t input, const uint16_t *algorithms, size_t num_algorithms)
++ {
++-    ++sc_callcnt;
++-    return sc_orig->cb(sc_orig, tls, selected_algorithm, output, input, algorithms, num_algorithms);
+++    ++*(ptls_is_server(tls) ? &server_sc_callcnt : &client_sc_callcnt);
+++    return sc_orig->cb(sc_orig, tls, sign_ctx, selected_algorithm, output, input, algorithms, num_algorithms);
+++}
+++
+++static int async_sign_certificate(ptls_sign_certificate_t *self, ptls_t *tls, void **sign_ctx, uint16_t *selected_algorithm,
+++                                  ptls_buffer_t *output, ptls_iovec_t input, const uint16_t *algorithms, size_t num_algorithms)
+++{
+++    if (!ptls_is_server(tls)) {
+++        /* do it synchronously, as async mode is only supported on the server-side */
+++    } else if (*sign_ctx == NULL) {
+++        /* first invocation, make a fake call to the backend and obtain the algorithm, return it, but not the signature */
+++        ptls_buffer_t fakebuf;
+++        ptls_buffer_init(&fakebuf, "", 0);
+++        int ret = sign_certificate(self, tls, NULL /* we know it's not used */, selected_algorithm, &fakebuf, input, algorithms,
+++                                   num_algorithms);
+++        assert(ret == 0);
+++        ptls_buffer_dispose(&fakebuf);
+++        static uint16_t selected;
+++        selected = *selected_algorithm;
+++        *sign_ctx = &selected;
+++        --server_sc_callcnt;
+++        ++async_sc_callcnt;
+++        return PTLS_ERROR_ASYNC_OPERATION;
+++    } else {
+++        /* second invocation, restore algorithm, and delegate the call */
+++        assert(algorithms == NULL);
+++        algorithms = *sign_ctx;
+++        num_algorithms = 1;
+++    }
+++
+++    return sign_certificate(self, tls, NULL /* we know that it's not used */, selected_algorithm, output, input, algorithms,
+++                            num_algorithms);
++ }
++ 
++ static ptls_sign_certificate_t *second_sc_orig;
++ 
++-static int second_sign_certificate(ptls_sign_certificate_t *self, ptls_t *tls, uint16_t *selected_algorithm, ptls_buffer_t *output,
++-                                   ptls_iovec_t input, const uint16_t *algorithms, size_t num_algorithms)
+++static int second_sign_certificate(ptls_sign_certificate_t *self, ptls_t *tls, void **sign_ctx, uint16_t *selected_algorithm,
+++                                   ptls_buffer_t *output, ptls_iovec_t input, const uint16_t *algorithms, size_t num_algorithms)
++ {
++-    ++sc_callcnt;
++-    return second_sc_orig->cb(second_sc_orig, tls, selected_algorithm, output, input, algorithms, num_algorithms);
+++    ++*(ptls_is_server(tls) ? &server_sc_callcnt : &client_sc_callcnt);
+++    return second_sc_orig->cb(second_sc_orig, tls, sign_ctx, selected_algorithm, output, input, algorithms, num_algorithms);
++ }
++ 
++-static void test_full_handshake_impl(int require_client_authentication)
+++static void test_full_handshake_impl(int require_client_authentication, int is_async)
++ {
++-    sc_callcnt = 0;
++-
++     test_handshake(ptls_iovec_init(NULL, 0), TEST_HANDSHAKE_1RTT, 0, 0, require_client_authentication);
++-    if (require_client_authentication) {
++-        ok(sc_callcnt == 2);
++-    } else {
++-        ok(sc_callcnt == 1);
++-    }
+++    ok(server_sc_callcnt == 1);
+++    ok(async_sc_callcnt == is_async);
+++    ok(client_sc_callcnt == require_client_authentication);
++ 
++     test_handshake(ptls_iovec_init(NULL, 0), TEST_HANDSHAKE_1RTT, 0, 0, require_client_authentication);
++-    if (require_client_authentication) {
++-        ok(sc_callcnt == 4);
++-    } else {
++-        ok(sc_callcnt == 2);
++-    }
+++    ok(server_sc_callcnt == 1);
+++    ok(async_sc_callcnt == is_async);
+++    ok(client_sc_callcnt == require_client_authentication);
++ 
++     test_handshake(ptls_iovec_init(NULL, 0), TEST_HANDSHAKE_1RTT, 0, 1, require_client_authentication);
++-    if (require_client_authentication) {
++-        ok(sc_callcnt == 6);
++-    } else {
++-        ok(sc_callcnt == 3);
++-    }
+++    ok(server_sc_callcnt == 1);
+++    ok(async_sc_callcnt == is_async);
+++    ok(client_sc_callcnt == require_client_authentication);
++ }
++ 
++ static void test_full_handshake(void)
++ {
++-    test_full_handshake_impl(0);
+++    test_full_handshake_impl(0, 0);
++ }
++ 
++ static void test_full_handshake_with_client_authentication(void)
++ {
++-    test_full_handshake_impl(1);
+++    test_full_handshake_impl(1, 0);
++ }
++ 
++ static void test_key_update(void)
++@@ -868,16 +912,14 @@ static void test_key_update(void)
++ 
++ static void test_hrr_handshake(void)
++ {
++-    sc_callcnt = 0;
++     test_handshake(ptls_iovec_init(NULL, 0), TEST_HANDSHAKE_HRR, 0, 0, 0);
++-    ok(sc_callcnt == 1);
+++    ok(server_sc_callcnt == 1);
++ }
++ 
++ static void test_hrr_stateless_handshake(void)
++ {
++-    sc_callcnt = 0;
++     test_handshake(ptls_iovec_init(NULL, 0), TEST_HANDSHAKE_HRR_STATELESS, 0, 0, 0);
++-    ok(sc_callcnt == 1);
+++    ok(server_sc_callcnt == 1);
++ }
++ 
++ static int on_copy_ticket(ptls_encrypt_ticket_t *self, ptls_t *tls, int is_encrypt, ptls_buffer_t *dst, ptls_iovec_t src)
++@@ -928,44 +970,31 @@ static void test_resumption_impl(int different_preferred_key_share, int require_
++     ctx_peer->encrypt_ticket = &et;
++     ctx->save_ticket = &st;
++ 
++-    sc_callcnt = 0;
++     test_handshake(saved_ticket, different_preferred_key_share ? TEST_HANDSHAKE_2RTT : TEST_HANDSHAKE_1RTT, 1, 0, 0);
++-    ok(sc_callcnt == 1);
+++    ok(server_sc_callcnt == 1);
++     ok(saved_ticket.base != NULL);
++ 
++     /* psk using saved ticket */
++     test_handshake(saved_ticket, TEST_HANDSHAKE_1RTT, 1, 0, require_client_authentication);
++-    if (require_client_authentication == 1) {
++-        ok(sc_callcnt == 3);
++-    } else {
++-        ok(sc_callcnt == 1);
++-    }
+++    ok(server_sc_callcnt == require_client_authentication); /* client authentication turns off resumption */
+++    ok(client_sc_callcnt == require_client_authentication);
++ 
++     /* 0-rtt psk using saved ticket */
++     test_handshake(saved_ticket, TEST_HANDSHAKE_EARLY_DATA, 1, 0, require_client_authentication);
++-    if (require_client_authentication == 1) {
++-        ok(sc_callcnt == 5);
++-    } else {
++-        ok(sc_callcnt == 1);
++-    }
+++    ok(server_sc_callcnt == require_client_authentication); /* client authentication turns off resumption */
+++    ok(client_sc_callcnt == require_client_authentication);
++ 
++     ctx->require_dhe_on_psk = 1;
++ 
++     /* psk-dhe using saved ticket */
++     test_handshake(saved_ticket, TEST_HANDSHAKE_1RTT, 1, 0, require_client_authentication);
++-    if (require_client_authentication == 1) {
++-        ok(sc_callcnt == 7);
++-    } else {
++-        ok(sc_callcnt == 1);
++-    }
+++    ok(server_sc_callcnt == require_client_authentication); /* client authentication turns off resumption */
+++    ok(client_sc_callcnt == require_client_authentication);
++ 
++     /* 0-rtt psk-dhe using saved ticket */
++     test_handshake(saved_ticket, TEST_HANDSHAKE_EARLY_DATA, 1, 0, require_client_authentication);
++-    if (require_client_authentication == 1) {
++-        ok(sc_callcnt == 9);
++-    } else {
++-        ok(sc_callcnt == 1);
++-    }
+++    ok(server_sc_callcnt == require_client_authentication); /* client authentication turns off resumption */
+++    ok(client_sc_callcnt == require_client_authentication);
++ 
++     ctx->require_dhe_on_psk = 0;
++     ctx_peer->ticket_lifetime = 0;
++@@ -992,6 +1021,18 @@ static void test_resumption_with_client_authentication(void)
++     test_resumption_impl(0, 1);
++ }
++ 
+++static void test_async_sign_certificate(void)
+++{
+++    assert(ctx_peer->sign_certificate->cb == sign_certificate);
+++
+++    ptls_sign_certificate_t async_sc = {async_sign_certificate}, *orig_sc = ctx_peer->sign_certificate;
+++    ctx_peer->sign_certificate = &async_sc;
+++
+++    test_full_handshake_impl(0, 1);
+++
+++    ctx_peer->sign_certificate = orig_sc;
+++}
+++
++ static void test_enforce_retry(int use_cookie)
++ {
++     ptls_t *client, *server;
++@@ -1442,6 +1483,8 @@ static void test_all_handshakes(void)
++     subtest("resumption-different-preferred-key-share", test_resumption_different_preferred_key_share);
++     subtest("resumption-with-client-authentication", test_resumption_with_client_authentication);
++ 
+++    subtest("async-sign-certificate", test_async_sign_certificate);
+++
++     subtest("enforce-retry-stateful", test_enforce_retry_stateful);
++     subtest("enforce-retry-stateless", test_enforce_retry_stateless);
++ 
++-- 
++2.17.1
++
+diff --git a/build/external/patches/quicly_0.1.0-vpp/0002-Async-mode-for-sign_certificate-using-openssl-ASYNC.patch b/build/external/patches/quicly_0.1.0-vpp/0002-Async-mode-for-sign_certificate-using-openssl-ASYNC.patch
+new file mode 100644
+index 000000000..5026dcfc1
+--- /dev/null
++++ b/build/external/patches/quicly_0.1.0-vpp/0002-Async-mode-for-sign_certificate-using-openssl-ASYNC.patch
+@@ -0,0 +1,161 @@
++From 0836ee87fd7704852349cb6807675bfab6a56857 Mon Sep 17 00:00:00 2001
++From: Vladimir Medvedkin <vladimir.medvedkin@intel.com>
++Date: Wed, 22 Jul 2020 19:34:25 +0100
++Subject: [PATCH 2/2] Async mode for sign_certificate using openssl ASYNC
++
++Signed-off-by: Vladimir Medvedkin <vladimir.medvedkin@intel.com>
++Signed-off-by: Ping Yu <ping.yu@intel.com>
++---
++ deps/picotls/lib/openssl.c | 98 +++++++++++++++++++++++++++++++++++++++++++++------
++ 1 file changed, 88 insertions(+), 10 deletions(-)
++
++diff --git a/deps/picotls/lib/openssl.c b/deps/picotls/lib/openssl.c
++index 1e4aef7..0c066ca 100644
++--- a/deps/picotls/lib/openssl.c
+++++ b/deps/picotls/lib/openssl.c
++@@ -31,6 +31,7 @@
++ #include <string.h>
++ #include <openssl/bn.h>
++ #include <openssl/crypto.h>
+++#include <openssl/async.h>
++ #include <openssl/ec.h>
++ #include <openssl/ecdh.h>
++ #include <openssl/err.h>
++@@ -65,6 +66,7 @@
++ #define EVP_PKEY_up_ref(p) CRYPTO_add(&(p)->references, 1, CRYPTO_LOCK_EVP_PKEY)
++ #define X509_STORE_up_ref(p) CRYPTO_add(&(p)->references, 1, CRYPTO_LOCK_X509_STORE)
++ 
+++
++ static HMAC_CTX *HMAC_CTX_new(void)
++ {
++     HMAC_CTX *ctx;
++@@ -88,6 +90,21 @@ static int EVP_CIPHER_CTX_reset(EVP_CIPHER_CTX *ctx)
++ 
++ #endif
++ 
+++struct sign_parameter {
+++     EVP_PKEY *key;
+++     ptls_buffer_t *outbuf;
+++     ptls_iovec_t *input;
+++     const EVP_MD *md;
+++};
+++
+++struct sign_ctx_t {
+++	ASYNC_JOB *job;
+++	ASYNC_WAIT_CTX *ctx;
+++        const EVP_MD *md;
+++	uint16_t algs;
+++	struct sign_parameter *arg;
+++};
+++
++ void ptls_openssl_random_bytes(void *buf, size_t len)
++ {
++     int ret = RAND_bytes(buf, (int)len);
++@@ -652,6 +669,7 @@ static int do_sign(EVP_PKEY *key, ptls_buffer_t *outbuf, ptls_iovec_t input, con
++     }
++     if ((ret = ptls_buffer_reserve(outbuf, siglen)) != 0)
++         goto Exit;
+++
++     if (EVP_DigestSignFinal(ctx, outbuf->base + outbuf->off, &siglen) != 1) {
++         ret = PTLS_ERROR_LIBRARY;
++         goto Exit;
++@@ -665,6 +683,14 @@ Exit:
++     return ret;
++ }
++ 
+++static int my_do_sign(void * args)
+++{
+++  struct sign_parameter *p;
+++  p = (struct sign_parameter *) args;
+++
+++  return do_sign(p->key, p->outbuf, *p->input, p->md);
+++}
+++
++ struct cipher_context_t {
++     ptls_cipher_context_t super;
++     EVP_CIPHER_CTX *evp;
++@@ -925,19 +951,71 @@ static int sign_certificate(ptls_sign_certificate_t *_self, ptls_t *tls, void **
++ {
++     ptls_openssl_sign_certificate_t *self = (ptls_openssl_sign_certificate_t *)_self;
++     const struct st_ptls_openssl_signature_scheme_t *scheme;
+++    ASYNC_JOB *job = NULL;
+++    ASYNC_WAIT_CTX *waitctx = NULL;
+++    struct sign_parameter arg;
+++    struct sign_ctx_t *ctx;
+++    int ret, funcret;
++ 
++-    /* select the algorithm */
++-    for (scheme = self->schemes; scheme->scheme_id != UINT16_MAX; ++scheme) {
++-        size_t i;
++-        for (i = 0; i != num_algorithms; ++i)
++-            if (algorithms[i] == scheme->scheme_id)
++-                goto Found;
++-    }
++-    return PTLS_ALERT_HANDSHAKE_FAILURE;
+++	if (*sign_ctx == NULL) {
+++		/* select the algorithm */
+++		for (scheme = self->schemes; scheme->scheme_id != UINT16_MAX;
+++				++scheme) {
+++			size_t i;
+++			for (i = 0; i != num_algorithms; ++i)
+++				if (algorithms[i] == scheme->scheme_id)
+++					goto Found;
+++		}
+++
+++		return PTLS_ALERT_HANDSHAKE_FAILURE;
++ 
++ Found:
++-    *selected_algorithm = scheme->scheme_id;
++-    return do_sign(self->key, outbuf, input, scheme->scheme_md);
+++		*selected_algorithm = scheme->scheme_id;
+++
+++		waitctx = ASYNC_WAIT_CTX_new();
+++
+++		if (waitctx == NULL) {
+++			return PTLS_ALERT_HANDSHAKE_FAILURE;
+++		}
+++
+++		arg.key = self->key;
+++		arg.outbuf = outbuf;
+++		arg.input = &input;
+++		arg.md = scheme->scheme_md;
+++
+++		ret =  ASYNC_start_job(&job, waitctx, &funcret, my_do_sign, &arg, sizeof(arg));
+++		if (ret ==  ASYNC_PAUSE) {
+++			ctx = malloc(sizeof(struct sign_ctx_t));
+++			if (ctx == NULL)
+++				return -1;
+++			ctx->job = job;
+++			ctx->ctx = waitctx;
+++			ctx->md = scheme->scheme_md;
+++			ctx->algs = scheme->scheme_id;
+++			*sign_ctx = ctx;
+++			return (PTLS_ERROR_ASYNC_OPERATION) ;
+++		}
+++		return funcret;
+++	} else {
+++		ctx = (struct sign_ctx_t *)(*sign_ctx);
+++		job = ctx->job;
+++		waitctx = ctx->ctx;
+++		scheme = self->schemes;
+++		arg.md = scheme->scheme_md;
+++		arg.key = self->key;
+++		arg.outbuf = outbuf;
+++		arg.input = &input;
+++		arg.md = ctx->md;
+++
+++		ret =  ASYNC_start_job(&job, waitctx, &funcret, my_do_sign, &arg, 0);
+++
+++		if (ret == ASYNC_PAUSE)
+++			return PTLS_ERROR_ASYNC_OPERATION;
+++
+++		funcret = 0;
+++		*selected_algorithm = ctx->algs;
+++		return funcret;
+++	}
++ }
++ 
++ static X509 *to_x509(ptls_iovec_t vec)
++-- 
++2.17.1
++
+diff --git a/build/external/patches/quicly_0.1.0-vpp/0003-attaching-a-callback-to-the-WAITCTX.patch b/build/external/patches/quicly_0.1.0-vpp/0003-attaching-a-callback-to-the-WAITCTX.patch
+new file mode 100644
+index 000000000..f44a89b78
+--- /dev/null
++++ b/build/external/patches/quicly_0.1.0-vpp/0003-attaching-a-callback-to-the-WAITCTX.patch
+@@ -0,0 +1,57 @@
++From 5a9f85052c563c37ca6ea13e255a1643877d54fb Mon Sep 17 00:00:00 2001
++From: Vladimir Medvedkin <vladimir.medvedkin@intel.com>
++Date: Mon, 24 Aug 2020 17:28:13 +0100
++Subject: [PATCH] attaching a callback to the WAITCTX
++
++Attach callback to WAITCTX in async openssl sign_certificate
++
++Signed-off-by: Vladimir Medvedkin <vladimir.medvedkin@intel.com>
++---
++ deps/picotls/include/picotls/openssl.h | 5 +++++
++ deps/picotls/lib/openssl.c             | 7 +++++++
++ 2 files changed, 12 insertions(+)
++
++diff --git a/deps/picotls/include/picotls/openssl.h b/deps/picotls/include/picotls/openssl.h
++index 2bfe1b9..886e8d9 100644
++--- a/deps/picotls/include/picotls/openssl.h
+++++ b/deps/picotls/include/picotls/openssl.h
++@@ -109,6 +109,11 @@ typedef struct st_ptls_openssl_verify_certificate_t {
++     X509_STORE *cert_store;
++ } ptls_openssl_verify_certificate_t;
++ 
+++typedef struct st_ptls_openssl_async_cb_t {
+++    int (*cb)(void *args);
+++    void *args;
+++} ptls_openssl_async_cb_t;
+++
++ int ptls_openssl_init_verify_certificate(ptls_openssl_verify_certificate_t *self, X509_STORE *store);
++ void ptls_openssl_dispose_verify_certificate(ptls_openssl_verify_certificate_t *self);
++ X509_STORE *ptls_openssl_create_default_certificate_store(void);
++diff --git a/deps/picotls/lib/openssl.c b/deps/picotls/lib/openssl.c
++index 0c066ca..16ea3ea 100644
++--- a/deps/picotls/lib/openssl.c
+++++ b/deps/picotls/lib/openssl.c
++@@ -956,6 +956,7 @@ static int sign_certificate(ptls_sign_certificate_t *_self, ptls_t *tls, void **
++     struct sign_parameter arg;
++     struct sign_ctx_t *ctx;
++     int ret, funcret;
+++    ptls_openssl_async_cb_t **cb;
++ 
++ 	if (*sign_ctx == NULL) {
++ 		/* select the algorithm */
++@@ -978,6 +979,12 @@ Found:
++ 			return PTLS_ALERT_HANDSHAKE_FAILURE;
++ 		}
++ 
+++		cb = ptls_get_data_ptr(tls);
+++
+++		if ((*cb != NULL) && (ASYNC_WAIT_CTX_set_callback(waitctx,
+++				(*cb)->cb, (*cb)->args) == 0))
+++			return PTLS_ALERT_HANDSHAKE_FAILURE;
+++
++ 		arg.key = self->key;
++ 		arg.outbuf = outbuf;
++ 		arg.input = &input;
++-- 
++2.17.1
++
+diff --git a/build/external/patches/quicly_0.1.0-vpp/cmake-openssl-version-hack.patch b/build/external/patches/quicly_0.1.0-vpp/cmake-openssl-version-hack.patch
+new file mode 100644
+index 000000000..000462445
+--- /dev/null
++++ b/build/external/patches/quicly_0.1.0-vpp/cmake-openssl-version-hack.patch
+@@ -0,0 +1,15 @@
++diff --git a/deps/picotls/CMakeLists.txt b/deps/picotls/CMakeLists.txt
++index 874b9be..78937fa 100644
++--- a/deps/picotls/CMakeLists.txt
+++++ b/deps/picotls/CMakeLists.txt
++@@ -94,6 +94,9 @@ ADD_EXECUTABLE(test-minicrypto.t
++ SET(TEST_EXES test-minicrypto.t)
++
++ FIND_PACKAGE(OpenSSL)
+++IF (OPENSSL_FOUND AND NOT OPENSSL_VERSION)
+++  set(OPENSSL_VERSION 3.0.0)
+++ENDIF ()
++ IF (OPENSSL_FOUND AND NOT (OPENSSL_VERSION VERSION_LESS "1.0.1"))
++     MESSAGE(STATUS "  Enabling OpenSSL support")
++     INCLUDE_DIRECTORIES(${OPENSSL_INCLUDE_DIR})
++
+diff --git a/build/external/patches/quicly_0.1.0-vpp/quickly-cmake-openssl-version-hack.patch b/build/external/patches/quicly_0.1.0-vpp/quickly-cmake-openssl-version-hack.patch
+new file mode 100644
+index 000000000..30ce9cb99
+--- /dev/null
++++ b/build/external/patches/quicly_0.1.0-vpp/quickly-cmake-openssl-version-hack.patch
+@@ -0,0 +1,15 @@
++diff --git a/CMakeLists.txt b/1
++index 7783308..c4bfa76 100644
++--- a/CMakeLists.txt
+++++ b/CMakeLists.txt
++@@ -7,6 +7,9 @@ PROJECT(quicly)
++ INCLUDE(deps/picotls/cmake/dtrace-utils.cmake)
++
++ FIND_PACKAGE(OpenSSL REQUIRED)
+++IF (OPENSSL_FOUND AND NOT OPENSSL_VERSION)
+++  set(OPENSSL_VERSION 3.0.0)
+++ENDIF ()
++ IF (OPENSSL_FOUND AND (OPENSSL_VERSION VERSION_LESS "1.0.2"))
++     MESSAGE(FATAL "OpenSSL 1.0.2 or above is missing")
++ ENDIF ()
++
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 499a39fba..c3566f7fb 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -57,7 +57,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/${VPP_RUNTIME_DIR})
+ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/${VPP_LIBRARY_DIR})
+ 
+ if (CMAKE_BUILD_TYPE)
+-  set(CMAKE_C_FLAGS "-g -fPIC -Werror -Wall ${CMAKE_C_FLAGS}")
++  set(CMAKE_C_FLAGS "-g -fPIC -Wno-deprecated-declarations -Werror -Wall ${CMAKE_C_FLAGS}")
+ endif()
+ 
+ if (compiler_flag_no_address_of_packed_member)
+diff --git a/src/plugins/tlspicotls/CMakeLists.txt b/src/plugins/tlspicotls/CMakeLists.txt
+index 74eff8c98..c4832401f 100644
+--- a/src/plugins/tlspicotls/CMakeLists.txt
++++ b/src/plugins/tlspicotls/CMakeLists.txt
+@@ -14,14 +14,24 @@ list (APPEND PICOTLS_LINK_LIBRARIES
+ 
+ if (PICOTLS_INCLUDE_DIR AND PICOTLS_LINK_LIBRARIES)
+     include_directories (${PICOTLS_INCLUDE_DIR})
++    include_directories(${OPENSSL_INCLUDE_DIR})
+     add_vpp_plugin(tlspicotls
+         SOURCES
+         tls_picotls.c
++	tls_async.c
+         pico_vpp_crypto.c
+         certs.c
+ 
+-        LINK_LIBRARIES ${PICOTLS_LINK_LIBRARIES}
++        LINK_LIBRARIES ${PICOTLS_LINK_LIBRARIES} ${OPENSSL_LIBRARIES}
+     )
++
++    set(CMAKE_REQUIRED_INCLUDES "${OPENSSL_INCLUDE_DIR}")
++    set(CMAKE_REQUIRED_LIBRARIES "${OPENSSL_LIBRARIES}")
++    check_function_exists(SSL_set_async_callback HAVE_OPENSSL_ASYNC)
++    if (HAVE_OPENSSL_ASYNC)
++      add_definitions(-DHAVE_OPENSSL_ASYNC)
++    endif()
++
+     message (STATUS "Found picotls in ${PICOTLS_INCLUDE_DIR} and ${PICOTLS_CORE_LIBRARY}")
+ else ()
+     message (WARNING "-- picotls not found")
+diff --git a/src/plugins/tlspicotls/tls_async.c b/src/plugins/tlspicotls/tls_async.c
+new file mode 100644
+index 000000000..de8626c52
+--- /dev/null
++++ b/src/plugins/tlspicotls/tls_async.c
+@@ -0,0 +1,528 @@
++/*
++ * Copyright (c) 2020 Intel and/or its affiliates.
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at:
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++#include <vnet/vnet.h>
++#include <vnet/session/session.h>
++#include <vnet/api_errno.h>
++#include <vlib/node_funcs.h>
++#include <openssl/engine.h>
++#include <tlspicotls/tls_picotls.h>
++
++#define SSL_ASYNC_INFLIGHT    1
++#define SSL_ASYNC_READY       2
++#define SSL_ASYNC_REENTER     3
++#define MAX_VECTOR_ASYNC    256
++
++typedef struct picotls_event_
++{
++  u32 ctx_index;
++  int session_index;
++  u8 status;
++
++  picotls_resume_handler *handler;
++  picotls_tls_callback_arg_t cb_args;
++#define thread_idx cb_args.thread_index
++#define event_idx cb_args.event_index
++  int next;
++} picotls_evt_t;
++
++typedef struct picotls_async_queue_
++{
++  int evt_run_head;
++  int evt_run_tail;
++} picotls_async_queue_t;
++
++typedef struct picotls_async_
++{
++  picotls_evt_t ***evt_pool;
++  picotls_async_queue_t *queue;
++  void (*polling) (void);
++  u8 start_polling;
++  ENGINE *engine;
++
++} picotls_async_t;
++
++struct engine_polling
++{
++  char *engine;
++  void (*polling) (void);
++  void (*pre_init) (void);
++  void (*thread_init) (void *);
++};
++
++picotls_async_t picotls_async_main;
++static vlib_node_registration_t ptls_async_process_node;
++
++static void
++qat_pre_init ()
++{
++  picotls_async_t *pm = &picotls_async_main;
++  ENGINE_ctrl_cmd (pm->engine, "ENABLE_EXTERNAL_POLLING", 0, NULL, NULL, 0);
++}
++
++/* Below code is spefic to QAT engine, and other vendors can refer to this code to enable a new engine */
++static void
++qat_init_thread (void *arg)
++{
++  picotls_async_t *pm = &picotls_async_main;
++  int thread_index = vlib_get_thread_index ();
++
++  ENGINE_ctrl_cmd (pm->engine, "SET_INSTANCE_FOR_THREAD", thread_index,
++		   NULL, NULL, 0);
++
++  TLS_DBG (2, "set thread %d and instance %d mapping\n", thread_index,
++	   thread_index);
++
++}
++
++static void
++qat_polling ()
++{
++  picotls_async_t *pm = &picotls_async_main;
++  int poll_status = 0;
++
++  if (pm->start_polling)
++    {
++      ENGINE_ctrl_cmd (pm->engine, "POLL", 0, &poll_status, NULL, 0);
++    }
++}
++
++struct engine_polling engine_list[] = {
++  {"qat", qat_polling, qat_pre_init, qat_init_thread}
++};
++
++static void
++evt_pool_init (vlib_main_t * vm)
++{
++  vlib_thread_main_t *vtm = vlib_get_thread_main ();
++  picotls_async_t *pm = &picotls_async_main;
++  int i, num_threads;
++
++  num_threads = 1 /* main thread */  + vtm->n_threads;
++
++  TLS_DBG (2, "Totally there is %d thread\n", num_threads);
++
++  vec_validate (pm->evt_pool, num_threads - 1);
++  vec_validate (pm->queue, num_threads - 1);
++
++  for (i = 0; i < num_threads; i++)
++    {
++      pm->queue[i].evt_run_head = -1;
++      pm->queue[i].evt_run_tail = -1;
++    }
++
++  return;
++}
++
++static void
++picotls_async_node_enable_disable (u8 is_en)
++{
++  u8 state = is_en ? VLIB_NODE_STATE_POLLING : VLIB_NODE_STATE_DISABLED;
++  vlib_thread_main_t *vtm = vlib_get_thread_main ();
++  u8 have_workers = vtm->n_threads != 0;
++
++
++  /* *INDENT-OFF* */
++  foreach_vlib_main (({
++    if (have_workers && ii != 0)
++      {
++        vlib_node_set_state (this_vlib_main, ptls_async_process_node.index,
++                         state);
++      }
++  }));
++  /* *INDENT-ON* */
++}
++
++int
++picotls_engine_register (char *engine_name, char *algorithm, int async)
++{
++  int i, registered = -1;
++  picotls_async_t *pm = &picotls_async_main;
++  void (*p) (void);
++  ENGINE *engine;
++
++  for (i = 0; i < ARRAY_LEN (engine_list); i++)
++    {
++      if (!strcmp (engine_list[i].engine, engine_name))
++	{
++	  pm->polling = engine_list[i].polling;
++	  registered = i;
++	}
++    }
++  if (registered < 0)
++    {
++      clib_error ("engine %s is not regisered in VPP", engine_name);
++      return -1;
++    }
++
++  ENGINE_load_builtin_engines ();
++  ENGINE_load_dynamic ();
++  engine = ENGINE_by_id (engine_name);
++
++  if (engine == NULL)
++    {
++      clib_warning ("Failed to find engine ENGINE_by_id %s", engine_name);
++      return -1;
++    }
++
++  pm->engine = engine;
++  /* call pre-init */
++  p = engine_list[registered].pre_init;
++  if (p)
++    (*p) ();
++
++  if (algorithm)
++    {
++      if (!ENGINE_set_default_string (engine, algorithm))
++	{
++	  clib_warning ("Failed to set engine %s algorithm %s\n",
++			engine_name, algorithm);
++	  return -1;
++	}
++    }
++  else
++    {
++      if (!ENGINE_set_default_string (engine, "RSA"))
++	{
++	  clib_warning ("Failed to set engine %s to all algorithm",
++			engine_name);
++	  return -1;
++	}
++    }
++
++  if (async)
++    {
++      picotls_async_node_enable_disable (1);
++    }
++
++  for (i = 0; i < vlib_num_workers (); i++)
++    {
++      if (engine_list[registered].thread_init)
++	session_send_rpc_evt_to_thread (i + 1,
++					engine_list[registered].thread_init,
++					(void *) &i);
++    }
++
++  pm->start_polling = 1;
++
++  return 0;
++
++}
++
++static picotls_evt_t *
++picotls_evt_get (u32 evt_index)
++{
++  picotls_evt_t **evt;
++  evt =
++    pool_elt_at_index (picotls_async_main.evt_pool[vlib_get_thread_index ()],
++		       evt_index);
++  return *evt;
++}
++
++static picotls_evt_t *
++picotls_evt_get_w_thread (int evt_index, u8 thread_index)
++{
++  picotls_evt_t **evt;
++
++  evt =
++    pool_elt_at_index (picotls_async_main.evt_pool[thread_index], evt_index);
++  return *evt;
++}
++
++int
++picotls_evt_free (int event_index, u8 thread_index)
++{
++  picotls_async_t *pm = &picotls_async_main;
++
++  /*pool operation */
++  pool_put_index (pm->evt_pool[thread_index], event_index);
++
++  return 1;
++}
++
++static u32
++picotls_evt_alloc (void)
++{
++  u8 thread_index = vlib_get_thread_index ();
++  picotls_async_t *tm = &picotls_async_main;
++  picotls_evt_t **evt;
++
++  pool_get (tm->evt_pool[thread_index], evt);
++  if (!(*evt))
++    *evt = clib_mem_alloc (sizeof (picotls_evt_t));
++
++  clib_memset (*evt, 0, sizeof (picotls_evt_t));
++  (*evt)->event_idx = evt - tm->evt_pool[thread_index];
++  return ((*evt)->event_idx);
++}
++
++
++/* In most cases, tls_async_picotls_callback is called by HW to make event active
++ * When EAGAIN received, VPP will call this callback to retry
++ */
++int
++tls_async_picotls_callback (void *cb_arg)
++{
++  picotls_evt_t *event, *event_tail;
++  picotls_async_t *pm = &picotls_async_main;
++  picotls_tls_callback_arg_t *args = (picotls_tls_callback_arg_t *) cb_arg;
++  int thread_index = args->thread_index;
++  int event_index = args->event_index;
++  int *evt_run_tail = &pm->queue[thread_index].evt_run_tail;
++  int *evt_run_head = &pm->queue[thread_index].evt_run_head;
++
++  TLS_DBG (2, "Set event %d to run\n", event_index);
++  event = picotls_evt_get_w_thread (event_index, thread_index);
++
++  /* Happend when a recursive case, especially in SW simulation */
++  if (PREDICT_FALSE (event->status == SSL_ASYNC_READY))
++    {
++      event->status = SSL_ASYNC_REENTER;
++      return 0;
++    }
++  event->status = SSL_ASYNC_READY;
++  event->next = -1;
++
++  if (*evt_run_tail >= 0)
++    {
++      event_tail = picotls_evt_get_w_thread (*evt_run_tail, thread_index);
++      event_tail->next = event_index;
++    }
++  *evt_run_tail = event_index;
++  if (*evt_run_head < 0)
++    {
++      *evt_run_head = event_index;
++    }
++
++  return 1;
++}
++
++int
++vpp_ptls_async_init_event (tls_ctx_t * ctx,
++			   picotls_resume_handler * handler,
++			   session_t * session)
++{
++  u32 eidx;
++  picotls_evt_t *event;
++  picotls_ctx_t *pc = (picotls_ctx_t *) ctx;
++  u32 thread_id = ctx->c_thread_index;
++
++  eidx = picotls_evt_alloc ();
++  event = picotls_evt_get (eidx);
++  event->ctx_index = pc->ptls_ctx_idx;
++  event->event_idx = eidx;
++  event->thread_idx = thread_id;
++  event->handler = handler;
++  event->session_index = session->session_index;
++  event->status = 0;
++  ctx->evt_index = eidx;
++
++  return 1;
++}
++
++#ifdef HAVE_OPENSSL_ASYNC
++void
++picotls_attach_async_cb_event (picotls_ctx_t * ptls_ctx,
++			       ptls_openssl_async_cb_t * cb)
++{
++  u32 eidx;
++  picotls_evt_t *event;
++  void **cb_p;
++
++  eidx = ptls_ctx->ctx.evt_index;
++  event = picotls_evt_get (eidx);
++  cb_p = ptls_get_data_ptr (ptls_ctx->tls);
++  cb->cb = tls_async_picotls_callback;
++  cb->args = &event->cb_args;
++  *cb_p = cb;
++}
++#endif
++
++int
++vpp_picotls_is_inflight (tls_ctx_t * ctx)
++{
++  u32 eidx;
++  picotls_evt_t *event;
++  eidx = ctx->evt_index;
++  event = picotls_evt_get (eidx);
++
++  if (event->status == SSL_ASYNC_INFLIGHT)
++    return 1;
++  return 0;
++}
++
++int
++vpp_picotls_is_ready (tls_ctx_t * ctx)
++{
++  u32 eidx;
++  picotls_evt_t *event;
++  eidx = ctx->evt_index;
++  event = picotls_evt_get (eidx);
++
++  if (event->status == SSL_ASYNC_READY)
++    return 1;
++  return 0;
++}
++
++int
++vpp_ptls_async_update_event (tls_ctx_t * ctx, int eagain)
++{
++  u32 eidx;
++  picotls_evt_t *event;
++
++  eidx = ctx->evt_index;
++  event = picotls_evt_get (eidx);
++  event->status = SSL_ASYNC_INFLIGHT;
++  if (eagain)
++    return tls_async_picotls_callback (&event->cb_args);
++
++  return 1;
++}
++
++void
++ptls_event_handler (void *tls_async)
++{
++  picotls_resume_handler *handler;
++  picotls_evt_t *event;
++  session_t *session;
++  int thread_index;
++  tls_ctx_t *ctx;
++
++  event = (picotls_evt_t *) tls_async;
++  thread_index = event->thread_idx;
++  ctx = picotls_ctx_get_w_thread (event->ctx_index, thread_index);
++  handler = event->handler;
++  session = session_get (event->session_index, thread_index);
++
++  if (handler)
++    {
++      (*handler) (ctx, session);
++    }
++
++  return;
++}
++
++static void
++picotls_async_polling ()
++{
++  picotls_async_t *pm = &picotls_async_main;
++  if (pm->polling)
++    {
++      (*pm->polling) ();
++    }
++}
++
++int
++ptls_async_do_job (int eidx, u32 thread_index)
++{
++  tls_ctx_t *ctx;
++  picotls_evt_t *event;
++
++  /* do the real job */
++  event = picotls_evt_get_w_thread (eidx, thread_index);
++  ctx = picotls_ctx_get_w_thread (event->ctx_index, thread_index);
++
++  if (ctx)
++    {
++      ctx->resume = 1;
++      session_send_rpc_evt_to_thread (thread_index, ptls_event_handler,
++				      event);
++    }
++  return 1;
++}
++
++int
++ptls_resume_from_crypto (int thread_index)
++{
++  int i;
++
++  picotls_async_t *pm = &picotls_async_main;
++  picotls_evt_t *event;
++  int *evt_run_head = &pm->queue[thread_index].evt_run_head;
++  int *evt_run_tail = &pm->queue[thread_index].evt_run_tail;
++
++  if (*evt_run_head < 0)
++    return 0;
++
++  for (i = 0; i < MAX_VECTOR_ASYNC; i++)
++    {
++      if (*evt_run_head >= 0)
++	{
++	  event = picotls_evt_get_w_thread (*evt_run_head, thread_index);
++	  ptls_async_do_job (*evt_run_head, thread_index);
++	  if (PREDICT_FALSE (event->status == SSL_ASYNC_REENTER))
++	    {
++	      /* recusive event triggered */
++	      event->status = SSL_ASYNC_READY;
++	      continue;
++	    }
++
++	  event->status = 0;
++	  *evt_run_head = event->next;
++
++	  if (event->next < 0)
++	    {
++	      *evt_run_tail = -1;
++	      break;
++	    }
++	}
++    }
++
++  return 0;
++
++}
++
++static clib_error_t *
++ptls_async_init (vlib_main_t * vm)
++{
++  evt_pool_init (vm);
++  return 0;
++}
++
++static uword
++ptls_async_process (vlib_main_t * vm, vlib_node_runtime_t * rt,
++		    vlib_frame_t * f)
++{
++  u8 thread_index;
++  picotls_async_t *pm = &picotls_async_main;
++
++  thread_index = vlib_get_thread_index ();
++  if (pool_elts (pm->evt_pool[thread_index]) > 0)
++    {
++      picotls_async_polling ();
++      ptls_resume_from_crypto (thread_index);
++    }
++
++  return 0;
++}
++
++VLIB_INIT_FUNCTION (ptls_async_init);
++
++/* *INDENT-OFF* */
++VLIB_REGISTER_NODE (ptls_async_process_node,static) = {
++    .function = ptls_async_process,
++    .type = VLIB_NODE_TYPE_INPUT,
++    .name = "picotls-async-process",
++    .state = VLIB_NODE_STATE_DISABLED,
++};
++
++/* *INDENT-ON* */
++
++/*
++ * fd.io coding-style-patch-verification: ON
++ *
++ * Local Variables:
++ * eval: (c-set-style "gnu")
++ * End:
++ */
+diff --git a/src/plugins/tlspicotls/tls_picotls.c b/src/plugins/tlspicotls/tls_picotls.c
+index 62782c6c1..aa32c1642 100644
+--- a/src/plugins/tlspicotls/tls_picotls.c
++++ b/src/plugins/tlspicotls/tls_picotls.c
+@@ -3,11 +3,13 @@
+ #include "certs.h"
+ #include "tls_picotls.h"
+ #include "pico_vpp_crypto.h"
++#include <ctype.h>
+ 
+ picotls_main_t picotls_main;
+ 
+ #define MAX_QUEUE 12000
+ #define PTLS_MAX_PLAINTEXT_RECORD_SIZE 16384
++#define MAX_CRYPTO_LEN 64
+ 
+ static u32
+ picotls_ctx_alloc (void)
+@@ -34,6 +36,11 @@ picotls_ctx_free (tls_ctx_t * ctx)
+   picotls_ctx_t *ptls_ctx = (picotls_ctx_t *) ctx;
+   vec_free (ptls_ctx->rx_content);
+   vec_free (ptls_ctx->write_content);
++
++#ifdef HAVE_OPENSSL_ASYNC
++  picotls_evt_free (ctx->evt_index, ctx->c_thread_index);
++#endif
++
+   pool_put_index (picotls_main.ctx_pool[ctx->c_thread_index],
+ 		  ptls_ctx->ptls_ctx_idx);
+ }
+@@ -219,12 +226,54 @@ picotls_app_close (tls_ctx_t * ctx)
+   return 0;
+ }
+ 
++#ifdef HAVE_OPENSSL_ASYNC
++
++struct ptls_openssl_sign_ctx_t
++{
++  ASYNC_JOB *job;
++  ASYNC_WAIT_CTX *ctx;
++};
++
++static int
++picotls_check_async_status (tls_ctx_t * ctx)
++{
++  picotls_ctx_t *pctx = (picotls_ctx_t *) ctx;
++  struct ptls_openssl_sign_ctx_t **sign_ctx;
++  ASYNC_WAIT_CTX *wctx;
++  int estatus;
++
++  sign_ctx =
++    (struct ptls_openssl_sign_ctx_t **)
++    ptls_get_sign_certificate_ctx (pctx->tls);
++  if (*sign_ctx == NULL)
++    return 0;
++
++  wctx = (*sign_ctx)->ctx;
++  if (wctx == NULL)
++    return 0;
++
++  estatus = ASYNC_WAIT_CTX_get_status (wctx);
++  if (estatus == ASYNC_STATUS_EAGAIN)
++    {
++      vpp_ptls_async_update_event (ctx, 1);
++    }
++  else
++    {
++      vpp_ptls_async_update_event (ctx, 0);
++    }
++
++  return 1;
++
++}
++
++#endif
++
+ static inline int
+ picotls_do_handshake (picotls_ctx_t * ptls_ctx, session_t * tls_session,
+ 		      u8 * input, int input_len)
+ {
+   ptls_t *tls = ptls_ctx->tls;
+-  ptls_buffer_t buf;
++  ptls_openssl_async_cb_t cb;
+   int rv = PTLS_ERROR_IN_PROGRESS;
+   int write = 0, off;
+ 
+@@ -233,17 +282,33 @@ picotls_do_handshake (picotls_ctx_t * ptls_ctx, session_t * tls_session,
+       off = 0;
+       do
+ 	{
+-	  ptls_buffer_init (&buf, "", 0);
++	  if (!ptls_ctx->handshake_in_progress)
++	    {
++	      picotls_attach_async_cb_event (ptls_ctx, &cb);
++	      ptls_buffer_init (&ptls_ctx->buf, "", 0);
++	    }
+ 	  size_t consumed = input_len - off;
+-	  rv = ptls_handshake (tls, &buf, input + off, &consumed, NULL);
++	  rv =
++	    ptls_handshake (tls, &ptls_ctx->buf, input + off, &consumed,
++			    NULL);
+ 	  off += consumed;
+ 	  ptls_ctx->rx_offset += consumed;
+-	  if ((rv == 0 || rv == PTLS_ERROR_IN_PROGRESS) && buf.off != 0)
++	  if (rv == PTLS_ERROR_ASYNC_OPERATION)
+ 	    {
++	      /* clean up reference on the cb */
++	      ptls_ctx->handshake_in_progress = 1;
++	      return rv;
++	    }
++	  if ((rv == 0 || rv == PTLS_ERROR_IN_PROGRESS)
++	      && ptls_ctx->buf.off != 0)
++
++	    {
++	      ptls_ctx->handshake_in_progress = 0;
+ 	      write = picotls_try_handshake_write (ptls_ctx, tls_session,
+-						   &buf);
++						   &ptls_ctx->buf);
+ 	    }
+-	  ptls_buffer_dispose (&buf);
++	  ptls_buffer_dispose (&ptls_ctx->buf);
++
+ 	}
+       while (rv == PTLS_ERROR_IN_PROGRESS && input_len != off);
+     }
+@@ -265,10 +330,11 @@ picotls_ctx_read (tls_ctx_t * ctx, session_t * tls_session)
+ 
+   tls_rx_fifo = tls_session->rx_fifo;
+ 
++
+   if (!picotls_handshake_is_over (ctx))
+     {
+       deq_max = svm_fifo_max_dequeue_cons (tls_rx_fifo);
+-      if (!deq_max)
++      if (!deq_max && !vpp_picotls_is_ready (ctx))
+ 	goto done_hs;
+ 
+       vec_validate (ptls_ctx->rx_content, deq_max);
+@@ -278,15 +344,33 @@ picotls_ctx_read (tls_ctx_t * ctx, session_t * tls_session)
+       off = svm_fifo_dequeue (tls_rx_fifo, deq_max, TLS_RX_LEN (ptls_ctx));
+       from_tls_len += off;
+       ptls_ctx->rx_len += off;
++      ret =
++	picotls_do_handshake (ptls_ctx, tls_session, TLS_RX_OFFSET (ptls_ctx),
++			      from_tls_len);
++
++#ifdef HAVE_OPENSSL_ASYNC
++      if (ret == PTLS_ERROR_ASYNC_OPERATION)
++	{
++	  struct ptls_openssl_sign_ctx_t **sign_ctx;
+ 
+-      picotls_do_handshake (ptls_ctx, tls_session, TLS_RX_OFFSET (ptls_ctx),
+-			    from_tls_len);
++	  sign_ctx =
++	    (struct ptls_openssl_sign_ctx_t **)
++	    ptls_get_sign_certificate_ctx (ptls_ctx->tls);
++	  if (*sign_ctx == NULL)
++	    return 0;
++
++	  picotls_check_async_status (ctx);
++	  return PTLS_ERROR_ASYNC_OPERATION;
++	}
++#endif
+       if (picotls_handshake_is_over (ctx))
+ 	tls_notify_app_accept (ctx);
+ 
+     done_hs:
+       if (!TLS_RX_IS_LEFT (ptls_ctx))
+-	return 0;
++	{
++	  return 0;
++	}
+     }
+ 
+   app_session = session_get_from_handle (ctx->app_session_handle);
+@@ -523,6 +607,7 @@ picotls_ctx_init_server (tls_ctx_t * ctx)
+   picotls_ctx_t *ptls_ctx = (picotls_ctx_t *) ctx;
+   u32 ptls_lctx_idx = ctx->tls_ssl_ctx;
+   picotls_listen_ctx_t *ptls_lctx;
++  session_t *tls_session;
+ 
+   ptls_lctx = picotls_lctx_get (ptls_lctx_idx);
+   ptls_ctx->tls = ptls_new (ptls_lctx->ptls_ctx, 1);
+@@ -535,6 +620,12 @@ picotls_ctx_init_server (tls_ctx_t * ctx)
+   ptls_ctx->rx_len = 0;
+   ptls_ctx->rx_offset = 0;
+ 
++  tls_session = session_get_from_handle (ctx->tls_session_handle);
++
++#ifdef HAVE_OPENSSL_ASYNC
++  vpp_ptls_async_init_event (ctx, picotls_ctx_read, tls_session);
++#endif
++
+   ptls_ctx->write_buffer_offset = 0;
+   return 0;
+ }
+@@ -562,6 +653,77 @@ const static tls_engine_vft_t picotls_engine = {
+   .ctx_app_close = picotls_app_close,
+ };
+ 
++#ifdef HAVE_OPENSSL_ASYNC
++static clib_error_t *
++tls_picotls_set_command_fn (vlib_main_t * vm, unformat_input_t * input,
++			    vlib_cli_command_t * cmd)
++{
++  char *engine_name = NULL;
++  char *engine_alg = NULL;
++  char *ciphers = NULL;
++  u8 engine_name_set = 0;
++  int i, async = 0;
++
++  /* By present, it is not allowed to configure engine again after running */
++  while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT)
++    {
++      if (unformat (input, "engine %s", &engine_name))
++	{
++	  engine_name_set = 1;
++	}
++      else if (unformat (input, "async"))
++	{
++	  async = 1;
++	}
++      else if (unformat (input, "alg %s", &engine_alg))
++	{
++	  for (i = 0; i < strnlen (engine_alg, MAX_CRYPTO_LEN); i++)
++	    engine_alg[i] = toupper (engine_alg[i]);
++	}
++      else if (unformat (input, "ciphers %s", &ciphers))
++	{
++	  for (i = 0; i < strnlen (engine_alg, MAX_CRYPTO_LEN); i++)
++	    engine_alg[i] = toupper (engine_alg[i]);
++	}
++      else
++	return clib_error_return (0, "failed: unknown input `%U'",
++				  format_unformat_error, input);
++    }
++
++  /* reset parameters if engine is not configured */
++  if (!engine_name_set)
++    {
++      clib_warning ("No engine provided! \n");
++      async = 0;
++    }
++  else
++    {
++      vnet_session_enable_disable (vm, 1);
++      if (picotls_engine_register (engine_name, engine_alg, async) < 0)
++	{
++	  return clib_error_return (0, "Failed to register %s polling",
++				    engine_name);
++	}
++      else
++	{
++	  vlib_cli_output (vm, "Successfully register engine %s\n",
++			   engine_name);
++	}
++    }
++
++  return 0;
++}
++
++/* *INDENT-OFF* */
++VLIB_CLI_COMMAND (tls_picotls_set_command, static) =
++{
++  .path = "tls picotls set",
++  .short_help = "tls picotls set [engine <engine name>] [alg [algorithm] [async]",
++  .function = tls_picotls_set_command_fn,
++};
++/* *INDENT-ON* */
++#endif
++
+ static clib_error_t *
+ tls_picotls_init (vlib_main_t * vm)
+ {
+diff --git a/src/plugins/tlspicotls/tls_picotls.h b/src/plugins/tlspicotls/tls_picotls.h
+index 92f7b0f9e..9023a82d0 100644
+--- a/src/plugins/tlspicotls/tls_picotls.h
++++ b/src/plugins/tlspicotls/tls_picotls.h
+@@ -6,6 +6,9 @@
+ #include <vnet/plugin/plugin.h>
+ #include <vnet/tls/tls.h>
+ #include <vpp/app/version.h>
++#ifdef HAVE_OPENSSL_ASYNC
++#include <openssl/async.h>
++#endif
+ 
+ #define TLS_RX_LEN(x) ((x)->rx_content + (x)->rx_len)
+ #define TLS_RX_OFFSET(x) ((x)->rx_content + (x)->rx_offset)
+@@ -33,6 +36,8 @@ typedef struct tls_ctx_picotls_
+   uint8_t *write_content;
+   int read_buffer_offset;
+   int write_buffer_offset;
++  int handshake_in_progress;
++  ptls_buffer_t buf;
+ } picotls_ctx_t;
+ 
+ typedef struct tls_listen_ctx_picotls_
+@@ -47,6 +52,36 @@ typedef struct picotls_main_
+   picotls_listen_ctx_t *lctx_pool;
+ } picotls_main_t;
+ 
++typedef struct picotls_tls_callback_arg_
++{
++  int thread_index;
++  int event_index;
++} picotls_tls_callback_arg_t;
++
++typedef struct picotls_async_cb_
++{
++  int (*cb) (void *evt);
++  picotls_tls_callback_arg_t args;
++} picotls_async_cb_t;
++
++typedef int picotls_resume_handler (tls_ctx_t * ctx, session_t * tls_session);
++
++tls_ctx_t *picotls_ctx_get_w_thread (u32 ctx_index, u8 thread_index);
++int vpp_ptls_async_init_event (tls_ctx_t * ctx,
++			       picotls_resume_handler * handler,
++			       session_t * session);
++
++int vpp_ptls_async_update_event (tls_ctx_t * ctx, int eagain);
++int tls_async_picotls_callback (void *evt);
++int picotls_evt_free (int event_idx, u8 thread_index);
++int picotls_engine_register (char *engine, char *alg, int async);
++int vpp_picotls_is_inflight (tls_ctx_t * ctx);
++int vpp_picotls_is_ready (tls_ctx_t * ctx);
++#ifdef HAVE_OPENSSL_ASYNC
++void picotls_attach_async_cb_event (picotls_ctx_t * ptls_ctx,
++				    ptls_openssl_async_cb_t * cb);
++#endif
++
+ #endif /* __included_quic_certs_h__ */
+ 
+ /*
+-- 
+2.17.1
+
